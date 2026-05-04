@@ -1,0 +1,18 @@
+[
+  {
+    "id": "edge_001",
+    "from_node_id": "dec_full_001",
+    "to_node_id": "limit_001",
+    "relationship": "limits",
+    "evidence_quote": "V13 is not a portfolio optimizer, risk allocator, or execution system.",
+    "confidence": 0.78
+  },
+  {
+    "id": "edge_002",
+    "from_node_id": "dec_full_001",
+    "to_node_id": "dep_001",
+    "relationship": "depends-on",
+    "evidence_quote": "Section 8.3 depends on the V13 evaluation framework.",
+    "confidence": 0.82
+  }
+]

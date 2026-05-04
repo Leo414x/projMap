@@ -1,0 +1,18 @@
+{
+  "id": "super_001",
+  "type": "decision",
+  "title": "Old approach to risk scoring",
+  "summary": "We used to score risk using a simple heuristic approach.",
+  "content": "We used to score risk using a simple heuristic approach.",
+  "status": "superseded",
+  "project": "Trading System",
+  "version": "V8",
+  "module": "risk",
+  "evidence_quote": "Risk scoring previously used a simple heuristic",
+  "confidence": 0.8,
+  "decision_time": "2026-03-01T00:00:00Z",
+  "decision_time_basis": "explicit_doc_date",
+  "decision_time_confidence": 0.85,
+  "source_file": "docs/risk_v8.md",
+  "schema_version": "v5"
+}

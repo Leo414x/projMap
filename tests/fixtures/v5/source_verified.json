@@ -1,0 +1,14 @@
+{
+  "id": "src_001",
+  "node_id": "dec_full_001",
+  "source_file": "docs/v13_review.md",
+  "source_heading": "Section 8.3",
+  "line_start": 120,
+  "line_end": 145,
+  "evidence_quote": "V13 Section 8.3 is approved for Paper/Shadow monitoring only.",
+  "evidence_hash": "sha256:abc123",
+  "source_created_at": "2026-05-03T10:20:00Z",
+  "source_modified_at": "2026-05-04T02:10:00Z",
+  "file_hash": "sha256:def456",
+  "source_confidence": "verified"
+}

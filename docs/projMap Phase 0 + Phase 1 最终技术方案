@@ -1,0 +1,222 @@
+projMap Phase 0 + Phase 1 最终技术方案
+0. 当前目标
+你现在已经搭好项目骨架，下一步只实现：
+Phase 0：Local-first SetupPhase 1：Decision Graph MVP
+本阶段不做完整产品，不做 UI，不做 SaaS，不做 report，不做 brief，不做 query。
+当前目标是完成第一个可用闭环：
+projmap init→ projmap scan→ projmap rebuild→ 扫描项目文档 / git log→ 增量判断哪些文件变化→ chunk 文档→ LLM 抽取 nodes / edges→ schema validate→ 写入 DuckDB→ projmap status 查看结果
+对应原始产品文档里定义的核心方向：projMap 是一个项目决策知识图谱，节点包含 decisions、risks、assumptions、versions，边包含 depends-on、conflicts-with、supersedes、traces-back-to 等关系。
+
+1. Scope
+1.1 本阶段要做
+模块内容优先级CLIinit / scan / rebuild / statusP0Config.projmap/config.tomlP0Scanner扫描 .md / .txt / TODO / CLAUDE.md / git logP0Ignore rules忽略 .git / .venv / node_modules / data 等P0Local cache文件 hash / extraction cacheP0DuckDB storagefiles / chunks / nodes / edges / extractionsP0Chunker文档切块，保留 source lineP0LLM extractionClaude 抽取 nodes / edgesP0Schema validationPydantic 校验 LLM JSONP0Incremental rebuild未变化文件跳过抽取P0Basic dedup基于 normalized content 去重P0Evidence quote每个 node / edge 保留证据P0
+1.2 本阶段不做
+不做内容原因projmap briefPhase 2projmap contextPhase 2 / Phase 3projmap query依赖 embedding 和 graph expansionHTML reportPhase 3D3 graphPhase 3LanceDB embedding search可以保留文件，但本阶段不强依赖Time travelPhase 4完整 contradiction detectionPhase 2+SaaS / Web backendMVP 不需要Neo4j太重LangChain抽取链路不复杂，先不用
+
+2. MVP 命令设计
+2.1 projmap init
+作用
+在当前项目目录初始化 projMap。
+执行内容
+1. 检查当前目录2. 创建 .projmap/3. 创建 .projmap/config.toml4. 创建 .projmap/cache/5. 创建 .projmap/logs/6. 初始化 DuckDB7. 写入默认 ignore rules
+生成结构
+.project-root/├── .projmap/│   ├── config.toml│   ├── projmap.duckdb│   ├── cache/│   │   ├── file_hashes.json│   │   └── extraction_cache.json│   └── logs/
+成功输出
+projMap initialized.Config: .projmap/config.tomlDatabase: .projmap/projmap.duckdb
+
+2.2 projmap scan
+作用
+只扫描项目文件，不调用 LLM。
+执行内容
+1. 读取 config.toml2. 应用 ignore rules3. 扫描候选文件4. 计算 content_hash5. 对比 file_hashes.json / DuckDB files 表6. 标记 new / changed / unchanged7. 输出扫描摘要
+输出示例
+Scan SummaryFiles found: 18New: 5Changed: 2Unchanged: 11Ignored: 432Candidate files:- README.md                  changed- TODO.md                    new- CLAUDE.md                  unchanged- docs/v8_handoff.md          changed- __git_log__                new
+
+2.3 projmap rebuild
+作用
+执行完整增量重建。
+执行内容
+1. scan files2. 找到 new / changed files3. 对变化文件执行 chunk4. 对 chunk 调用 LLM extraction5. 解析 JSON6. Pydantic validate7. 写入 extractions8. 写入 chunks9. 写入 nodes10. 解析 edges11. 写入 edges12. 更新 file_hashes13. 输出 rebuild summary
+关键要求
+未变化文件不能重复调用 LLM。单个 chunk 失败不能中断整个 rebuild。LLM JSON 解析失败必须记录到 extractions 表。没有 ANTHROPIC_API_KEY 时必须清晰报错。
+输出示例
+Rebuild SummaryScanned files: 18Changed files: 2Chunks created: 7Extractions succeeded: 6Extractions failed: 1Nodes inserted: 34Edges inserted: 19Skipped unchanged files: 11
+
+2.4 projmap status
+作用
+查看当前 graph 状态。
+输出内容
+projMap StatusProject: spy_morning_pipelineDatabase: .projmap/projmap.duckdbFiles tracked: 18Chunks: 72Nodes: 96Edges: 41Extractions: 72Node types:- decision: 42- risk: 18- assumption: 21- version: 9- constraint: 6Last rebuild: 2026-05-03 10:42:31
+
+3. 项目结构职责
+基于你当前骨架，职责这样定。
+projmap/├── cli.py├── config.py├── scanner.py├── chunker.py├── extractor.py├── schemas.py├── storage/│   ├── duckdb_store.py│   ├── cache.py│   └── lancedb_store.py├── intelligence/│   ├── forgotten.py│   ├── stale.py│   ├── risk_decay.py│   └── lineage.py├── outputs/│   ├── brief.py│   ├── context.py│   └── report.py└── templates/    └── report.html.j2
+3.1 当前阶段需要实现
+文件当前阶段职责cli.pyTyper CLI，提供 init / scan / rebuild / statusconfig.py默认配置、读取配置、写入配置scanner.py文件发现、ignore rules、hash 计算、git log virtual filechunker.py文档切块，保留文件路径和行号extractor.pyClaude API 调用、prompt、JSON parseschemas.pyPydantic schema，定义 Node / Edge / Extractionstorage/duckdb_store.py初始化表、insert、upsert、summary querystorage/cache.pyfile_hashes.json / extraction_cache.jsonstorage/lancedb_store.py先保留占位，不强制实现intelligence/*本阶段可空实现outputs/*本阶段可空实现
+
+4. Config 设计
+4.1 .projmap/config.toml
+[project]name = "auto"root = "."[scan]include_extensions = [".md", ".txt"]include_filenames = ["TODO", "TODO.md", "CLAUDE.md", "README.md"]include_git_log = truegit_log_limit = 200ignore_paths = [  ".git",  ".projmap",  ".venv",  "venv",  "node_modules",  "dist",  "build",  "data",  "__pycache__",  ".pytest_cache"]ignore_globs = [  "*.pyc",  "*.parquet",  "*.csv",  "*.duckdb",  "*.db",  "*.sqlite",  "*.png",  "*.jpg",  "*.jpeg",  "*.gif",  "*.pdf"][chunking]max_chars = 12000overlap_chars = 800[llm]provider = "anthropic"model = "claude-3-5-sonnet-latest"api_key_env = "ANTHROPIC_API_KEY"temperature = 0[dedup]method = "normalized_content_hash"similarity_threshold = 0.88[storage]database_path = ".projmap/projmap.duckdb"cache_dir = ".projmap/cache"
+
+5. Scanner 设计
+5.1 扫描对象
+默认扫描：
+.md.txtTODOTODO.mdREADME.mdCLAUDE.mdhandoff*.md*_handoff.md
+额外生成一个 virtual file：
+__git_log__
+内容来自：
+git log --date=iso --pretty=format:"%h | %ad | %s" -n 200
+5.2 忽略规则
+必须默认忽略：
+.git.projmap.venvvenvnode_modulesdistbuilddata__pycache__.pytest_cache
+必须默认忽略大文件类型：
+.parquet.csv.duckdb.db.sqlite.png.jpg.jpeg.gif.pdf
+5.3 FileRecord
+scanner 输出统一结构：
+class FileRecord(BaseModel):    path: str    file_type: str    content: str    content_hash: str    size_bytes: int    modified_at: datetime | None    status: Literal["new", "changed", "unchanged"]    is_virtual: bool = False
+
+6. Chunker 设计
+6.1 Chunk 规则
+MVP 不做复杂 token chunk，先用字符数。
+max_chars = 12000overlap_chars = 800
+切块时尽量在 markdown heading 或空行处分割。
+6.2 ChunkRecord
+class ChunkRecord(BaseModel):    id: str    file_path: str    chunk_index: int    content: str    content_hash: str    start_line: int | None    end_line: int | None
+chunk_id 生成规则：
+sha256(file_path + chunk_index + content_hash)
+
+7. LLM Extraction 设计
+7.1 默认只支持 Anthropic
+MVP 只实现：
+provider = anthropicapi_key_env = ANTHROPIC_API_KEY
+不要第一版就做复杂 provider abstraction。
+可以预留接口：
+class BaseExtractor:    def extract(chunk: ChunkRecord) -> ExtractionResult:        ...
+但只实现：
+AnthropicExtractor
+
+7.2 Extraction Prompt
+System Prompt
+You are extracting a project decision memory graph.Extract only information that is explicitly supported by the provided document chunk.Return strict JSON only. Do not include markdown. Do not include commentary.Node types:- decision: a concrete project choice, architecture decision, product decision, implementation direction, or accepted plan- risk: a known risk, blocker, weakness, uncertainty, or failure mode- assumption: a belief or condition that the project depends on- version: a named project version, system version, model version, milestone, or frozen baseline- constraint: a rule, limitation, non-negotiable requirement, or "do not modify" boundaryEdge relationship types:- depends-on: source requires target to be true or available- conflicts-with: source contradicts target- supersedes: source replaces target- traces-back-to: source evolved from target- mitigates: source reduces or addresses target riskRules:- Every node must include evidence_quote from the chunk.- Every edge must include evidence_quote from the chunk.- Do not invent facts.- Do not infer relationships without textual evidence.- Do not generate IDs.- If no valid nodes or edges exist, return empty arrays.- Keep node content concise: one sentence.- Keep detail under 500 characters.
+User Prompt
+Extract project memory nodes and edges from this document chunk.Source file:{source_file}Chunk index:{chunk_index}Content:{chunk_content}Return JSON in this exact shape:{  "nodes": [    {      "type": "decision | risk | assumption | version | constraint",      "content": "one sentence summary",      "detail": "supporting detail under 500 chars",      "source_line": "heading or approximate line if available",      "evidence_quote": "short direct quote from chunk",      "confidence": 0.0    }  ],  "edges": [    {      "from_content": "must match or closely match a node content",      "to_content": "must match or closely match a node content",      "relationship": "depends-on | conflicts-with | supersedes | traces-back-to | mitigates",      "evidence_quote": "short direct quote from chunk",      "confidence": 0.0    }  ]}
+
+8. Schema 设计
+8.1 Node schema
+from typing import Literalfrom pydantic import BaseModel, FieldNodeType = Literal[    "decision",    "risk",    "assumption",    "version",    "constraint",]class ExtractedNode(BaseModel):    type: NodeType    content: str = Field(min_length=5, max_length=300)    detail: str = Field(default="", max_length=500)    source_line: str | None = None    evidence_quote: str = Field(min_length=5, max_length=1000)    confidence: float = Field(ge=0.0, le=1.0)
+8.2 Edge schema
+EdgeType = Literal[    "depends-on",    "conflicts-with",    "supersedes",    "traces-back-to",    "mitigates",]class ExtractedEdge(BaseModel):    from_content: str = Field(min_length=5, max_length=300)    to_content: str = Field(min_length=5, max_length=300)    relationship: EdgeType    evidence_quote: str = Field(min_length=5, max_length=1000)    confidence: float = Field(ge=0.0, le=1.0)
+8.3 Extraction result
+class ExtractionResult(BaseModel):    nodes: list[ExtractedNode] = []    edges: list[ExtractedEdge] = []
+
+9. DuckDB 表结构
+9.1 files
+CREATE TABLE IF NOT EXISTS files (  path TEXT PRIMARY KEY,  file_type TEXT,  content_hash TEXT,  size_bytes BIGINT,  modified_at TIMESTAMP,  last_scanned_at TIMESTAMP,  last_extracted_at TIMESTAMP,  status TEXT);
+9.2 chunks
+CREATE TABLE IF NOT EXISTS chunks (  id TEXT PRIMARY KEY,  file_path TEXT,  chunk_index INTEGER,  content TEXT,  content_hash TEXT,  start_line INTEGER,  end_line INTEGER,  created_at TIMESTAMP);
+9.3 nodes
+CREATE TABLE IF NOT EXISTS nodes (  id TEXT PRIMARY KEY,  type TEXT,  content TEXT,  detail TEXT,  source_file TEXT,  source_chunk_id TEXT,  source_line TEXT,  evidence_quote TEXT,  confidence DOUBLE,  content_hash TEXT,  created_at TIMESTAMP,  updated_at TIMESTAMP);
+9.4 edges
+CREATE TABLE IF NOT EXISTS edges (  id TEXT PRIMARY KEY,  from_node_id TEXT,  to_node_id TEXT,  relationship TEXT,  evidence_quote TEXT,  confidence DOUBLE,  source_file TEXT,  source_chunk_id TEXT,  created_at TIMESTAMP);
+9.5 extractions
+CREATE TABLE IF NOT EXISTS extractions (  id TEXT PRIMARY KEY,  chunk_id TEXT,  file_path TEXT,  model TEXT,  raw_response TEXT,  parsed_json TEXT,  status TEXT,  error TEXT,  created_at TIMESTAMP);
+
+10. ID 生成规则
+10.1 File hash
+sha256(file_content)
+10.2 Chunk ID
+sha256(file_path + chunk_index + chunk_content_hash)
+10.3 Node ID
+MVP 使用 deterministic ID，方便重复 rebuild 不产生大量重复节点。
+sha256(node_type + normalized_content)
+10.4 Edge ID
+sha256(from_node_id + to_node_id + relationship)
+
+11. Dedup 设计
+11.1 MVP 方案
+先不用 embedding dedup。
+使用 deterministic dedup：
+same node_type+ normalized_content_hash 相同= same node
+11.2 normalized_content
+规则：
+1. lower()2. strip()3. 合并多个空格4. 去掉末尾标点
+11.3 可选 fuzzy dedup
+可用 Python 标准库：
+difflib.SequenceMatcher
+规则：
+same node_typeAND similarity > 0.88
+但建议先关闭 fuzzy dedup，避免误合并。
+
+12. Incremental Rebuild 设计
+12.1 文件级增量
+每次 rebuild：
+1. scanner 计算当前 content_hash2. 读取 files 表中的旧 content_hash3. 如果 hash 一样 → skip4. 如果 hash 不一样 → re-chunk + re-extract
+12.2 变化文件处理
+对于 changed file：
+1. 删除该文件旧 chunks2. 删除该文件旧 extractions3. 删除该文件旧 nodes / edges4. 重新插入新结果
+MVP 可以先按 source_file 级别重建，简单可靠。
+12.3 unchanged file
+必须跳过：
+LLM extractionchunk rebuildnode insertedge insert
+
+13. Edge Resolution 设计
+LLM 返回的 edge 使用：
+from_contentto_content
+系统负责解析到 node_id。
+13.1 解析规则
+1. 先在当前 chunk nodes 中找 exact normalized match2. 找不到则在当前 file nodes 中找 exact normalized match3. 仍找不到则丢弃该 edge，并记录 warning
+13.2 为什么不让 LLM 生成 ID
+因为 LLM 生成 ID 不稳定，重复 rebuild 会产生不可控结果。
+
+14. Error Handling
+14.1 没有 API Key
+场景：
+ANTHROPIC_API_KEY missing
+行为：
+projmap rebuild exits with clear message不写入部分 extractionexit code = 1
+输出：
+Missing ANTHROPIC_API_KEY.Set it with:export ANTHROPIC_API_KEY="your-key"
+14.2 单个 chunk 抽取失败
+行为：
+1. 写入 extractions 表2. status = failed3. error = exception message4. 继续处理下一个 chunk
+14.3 JSON parse 失败
+行为：
+1. raw_response 写入 extractions2. status = json_parse_failed3. error 写入 parse error4. 继续处理
+14.4 Pydantic validation 失败
+行为：
+1. raw_response 写入 extractions2. status = validation_failed3. error 写入 validation error4. 继续处理
+14.5 非 Git repo
+projmap init 不应该失败。
+行为：
+1. 正常初始化2. include_git_log 自动设为 false3. 输出 warning
+
+15. Rebuild Summary 统计指标
+projmap rebuild 最后必须输出：
+scanned_filesnew_fileschanged_filesunchanged_filesignored_fileschunks_createdchunks_skippedextractions_succeededextractions_failednodes_insertednodes_skipped_duplicateedges_insertededges_dropped_unresolvedduration_seconds
+
+16. 测试要求
+16.1 Unit tests
+必须覆盖：
+测试内容config test默认 config 创建正确scanner testignore rules 生效hash test同内容 hash 一致，不同内容 hash 不一致chunker testchunk 不超过 max_chars，保留 line rangeschema test合法 LLM JSON 通过，不合法 JSON 失败duckdb test所有表成功创建dedup testnormalized content 生成稳定 node idrebuild skip testunchanged file 不重复 extraction
+16.2 Fixture
+准备测试文件：
+tests/fixtures/├── sample_project/│   ├── README.md│   ├── TODO.md│   ├── CLAUDE.md│   ├── docs/│   │   └── handoff.md│   └── node_modules/│       └── ignored.md
+
+17. 验收标准
+本阶段完成标准：
+1. projmap init 能初始化 .projmap 目录和 config.toml2. projmap scan 能列出候选文件，并正确显示 new / changed / unchanged3. projmap scan 能正确忽略 .venv / node_modules / data / .git4. projmap rebuild 能读取变化文件并 chunk5. projmap rebuild 能调用 Claude 抽取 nodes / edges6. LLM 输出必须经过 Pydantic 校验7. nodes / edges / chunks / files / extractions 必须写入 DuckDB8. 每个 node 必须有 evidence_quote9. 每个 edge 必须有 evidence_quote10. 重新运行 rebuild 时，未变化文件必须跳过 LLM extraction11. 单个 chunk 失败不能中断整个 rebuild12. projmap status 能显示 files / chunks / nodes / edges / extractions 数量13. 至少有 pytest 覆盖 config / scanner / schema / duckdb / hash
+
+18. MVP 成功标准
+用真实项目文档跑一次：
+projmap initprojmap scanprojmap rebuildprojmap status
+最终能从项目文档中抽取：
+20–100 个高质量 project memory nodes
+其中至少包含：
+decisionriskassumptionversionconstraint
+并且每个 node / edge 都可以追溯到原文 evidence quote。
+
+19. 最终开发顺序
+建议 CC 按这个顺序开发：
+1. schemas.py2. config.py3. storage/duckdb_store.py4. storage/cache.py5. scanner.py6. chunker.py7. extractor.py8. cli.py init9. cli.py scan10. cli.py rebuild11. cli.py status12. tests
+不要从 extractor 开始。
+先把本地基础设施跑通，再接 LLM。

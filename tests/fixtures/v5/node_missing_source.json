@@ -1,0 +1,21 @@
+{
+  "id": "nosrc_001",
+  "type": "decision",
+  "title": "Some decision without source",
+  "summary": "A decision was made but source is missing.",
+  "content": "A decision was made but source is missing.",
+  "context": "Background info",
+  "rationale": "It was necessary",
+  "scope": "Limited scope",
+  "status": "active",
+  "project": "Trading System",
+  "version": "V13",
+  "module": "decision_flow",
+  "evidence_quote": "",
+  "confidence": 0.7,
+  "decision_time": "2026-05-01T00:00:00Z",
+  "decision_time_basis": "extraction_time",
+  "decision_time_confidence": 0.2,
+  "source_file": "",
+  "schema_version": "v5"
+}

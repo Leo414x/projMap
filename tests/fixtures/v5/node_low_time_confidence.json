@@ -1,0 +1,19 @@
+{
+  "id": "lowtime_001",
+  "type": "config",
+  "title": "K horizons are 3, 6, 8 bars",
+  "summary": "V13 uses K horizons of 3, 6, and 8 bars for evaluation.",
+  "content": "V13 uses K horizons of 3, 6, and 8 bars for evaluation.",
+  "status": "active",
+  "project": "Trading System",
+  "version": "V13",
+  "module": "labeling",
+  "evidence_quote": "K horizons are 3, 6, 8 bars",
+  "confidence": 0.75,
+  "decision_time": null,
+  "decision_time_basis": "file_modified_at",
+  "decision_time_confidence": 0.35,
+  "source_file": "docs/v13_review.md",
+  "source_line_start": 88,
+  "schema_version": "v5"
+}

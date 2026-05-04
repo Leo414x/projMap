@@ -1,0 +1,17 @@
+{
+  "id": "impl_001",
+  "type": "implementation_fact",
+  "title": "Database uses DuckDB for local storage",
+  "summary": "projMap uses DuckDB for embedded analytics.",
+  "content": "projMap uses DuckDB for embedded local-first analytics queries.",
+  "status": "active",
+  "project": "projMap",
+  "module": "storage",
+  "evidence_quote": "DuckDB provides embedded SQL analytics",
+  "confidence": 0.9,
+  "decision_time": null,
+  "decision_time_basis": "file_created_at",
+  "decision_time_confidence": 0.5,
+  "source_file": "projmap/storage/duckdb_store.py",
+  "schema_version": "v5"
+}

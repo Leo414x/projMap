@@ -1,0 +1,21 @@
+{
+  "id": "leg_001",
+  "type": "decision",
+  "content": "Tier 3 thresholds were selected as 0.56 for CALL and PUT.",
+  "summary": "",
+  "title": "",
+  "context": null,
+  "rationale": null,
+  "scope": null,
+  "status": null,
+  "project": null,
+  "version": null,
+  "module": null,
+  "evidence_quote": "",
+  "confidence": 0.5,
+  "decision_time": null,
+  "decision_time_basis": null,
+  "decision_time_confidence": null,
+  "source_file": "docs/trading_rules.md",
+  "schema_version": "v4"
+}
