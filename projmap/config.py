@@ -54,6 +54,14 @@ class ProjmapConfig:
     extraction_mode: str = "external"
     strict_evidence: bool = True
     prompt_version: str = "v1"
+    prompt_versions: dict[str, str] = field(default_factory=lambda: {
+        "extraction": "v1",
+        "relation_discovery": "v1",
+        "enrichment": "v1",
+        "enrichment_query": "v1",
+        "brief_section": "v1",
+        "brief_status": "v1",
+    })
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     api_key_env: str = "ANTHROPIC_API_KEY"
@@ -97,6 +105,7 @@ def _to_toml_dict(cfg: ProjmapConfig) -> dict:
             "strict_evidence": cfg.strict_evidence,
             "prompt_version": cfg.prompt_version,
         },
+        "prompts": cfg.prompt_versions,
         "llm": {
             "provider": cfg.llm_provider,
             "model": cfg.llm_model,
@@ -138,6 +147,20 @@ def load_config(root: str = ".") -> ProjmapConfig:
     extraction = data.get("extraction", {})
     llm = data.get("llm", {})
     storage = data.get("storage", {})
+    prompts = data.get("prompts", {})
+
+    # Backward compat: if [prompts] missing but [extraction] has prompt_version
+    default_pv = {
+        "extraction": "v1",
+        "relation_discovery": "v1",
+        "enrichment": "v1",
+        "enrichment_query": "v1",
+        "brief_section": "v1",
+        "brief_status": "v1",
+    }
+    if not prompts and extraction.get("prompt_version"):
+        default_pv["extraction"] = extraction["prompt_version"]
+    prompt_versions = {**default_pv, **prompts}
     return ProjmapConfig(
         project_name=project.get("name", Path(root).resolve().name),
         root=project.get("root", root),
@@ -158,6 +181,7 @@ def load_config(root: str = ".") -> ProjmapConfig:
         temperature=llm.get("temperature", 0.0),
         database_path=storage.get("database_path", ".projmap/projmap.duckdb"),
         cache_dir=storage.get("cache_dir", ".projmap/cache"),
+        prompt_versions=prompt_versions,
     )
 
 

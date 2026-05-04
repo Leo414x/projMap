@@ -164,6 +164,48 @@ def rebuild(
     console.print(table)
 
 
+# ── update ────────────────────────────────────────────────────────
+
+@app.command()
+def update(
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Incremental sync: extract changes, discover relations, refresh brief."""
+    result = api.update_project(".")
+
+    if _json_or_error(result, format):
+        return
+
+    extraction = result.get("extraction", {})
+    relations = result.get("relations", {})
+    brief = result.get("brief", {})
+
+    console.print("[bold green]projMap updated.[/bold green]")
+
+    # Extraction summary
+    nodes = extraction.get("nodes_inserted", 0)
+    edges = extraction.get("edges_inserted", 0)
+    if nodes or edges:
+        console.print(f"  Extracted: {nodes} nodes, {edges} edges", style="green")
+    else:
+        console.print("  Extraction: no changes", style="dim")
+
+    # Relation summary
+    if relations and relations.get("ok"):
+        r_edges = relations.get("edges_inserted", 0)
+        clusters = relations.get("clusters_processed", 0)
+        console.print(f"  Relations: {r_edges} edges from {clusters} clusters", style="green")
+    else:
+        console.print("  Relations: skipped (no API key or no changes)", style="dim")
+
+    # Brief summary
+    if brief and brief.get("ok"):
+        sections = brief.get("sections", {})
+        console.print(f"  Brief: {len(sections)} sections refreshed", style="green")
+    else:
+        console.print("  Brief: skipped", style="dim")
+
+
 # ── status ──────────────────────────────────────────────────────
 
 @app.command()
@@ -340,6 +382,7 @@ def query(
 
 @app.command()
 def brief(
+    section_aware: bool = typer.Option(False, "--section-aware", help="Use section-aware brief generation"),
     format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
 ) -> None:
     """Show project brief — current status, constraints, decisions, risks."""
@@ -347,7 +390,10 @@ def brief(
     from projmap.storage.duckdb_store import DuckDBStore
     from projmap.report.brief_builder import build_brief
     from projmap.report.render_markdown import render_brief
-    from projmap.report.llm_enricher import enrich_nodes, get_brief_status_api
+    from projmap.report.llm_enricher import (
+        enrich_nodes, get_brief_status_api,
+        generate_brief_sections_api, load_cached_brief_sections,
+    )
 
     try:
         cfg = load_config(".")
@@ -360,26 +406,54 @@ def brief(
     edge_counts_map = store.get_edge_counts_by_node()
     store.close()
 
-    enrichments_list, used_api = enrich_nodes(nodes, project_root=".")
-    enrichments_dict = {n.get("id", ""): e for n, e in zip(nodes, enrichments_list)}
+    import os
 
-    llm_status = None
-    if used_api:
-        try:
-            enriched_for_status = [{**n, **e} for n, e in zip(nodes, enrichments_list)]
-            llm_status = get_brief_status_api(enriched_for_status)
-        except Exception:
-            pass
+    if section_aware:
+        llm_sections = None
+        # Try API first
+        if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+            try:
+                sections_result = generate_brief_sections_api(".")
+                if sections_result.get("ok"):
+                    llm_sections = {
+                        "sections": sections_result["sections"],
+                        "current_status": sections_result["current_status"],
+                    }
+            except Exception:
+                pass
 
-    result = build_brief(
-        nodes, edge_counts_map,
-        project_hint=cfg.project_name,
-        enrichments=enrichments_dict,
-        llm_status=llm_status,
-    )
+        # Fallback to cache
+        if llm_sections is None:
+            cached = load_cached_brief_sections(".")
+            if cached:
+                llm_sections = cached
+
+        result = build_brief(
+            nodes, edge_counts_map,
+            project_hint=cfg.project_name,
+            llm_sections=llm_sections,
+        )
+    else:
+        enrichments_list, used_api = enrich_nodes(nodes, project_root=".")
+        enrichments_dict = {n.get("id", ""): e for n, e in zip(nodes, enrichments_list)}
+
+        llm_status = None
+        if used_api:
+            try:
+                enriched_for_status = [{**n, **e} for n, e in zip(nodes, enrichments_list)]
+                llm_status = get_brief_status_api(enriched_for_status)
+            except Exception:
+                pass
+
+        result = build_brief(
+            nodes, edge_counts_map,
+            project_hint=cfg.project_name,
+            enrichments=enrichments_dict,
+            llm_status=llm_status,
+        )
 
     if format == "json":
-        _output_json({"ok": True, "stats": result["stats"]})
+        _output_json({"ok": True, "stats": result["stats"], "section_aware": result.get("section_aware", False)})
         return
 
     output = render_brief(result)
@@ -435,6 +509,147 @@ def import_brief(
     console.print(f"Enrichments loaded: {result['enrichments_loaded']}")
     console.print(f"Failed: {result['tasks_failed']}", style="yellow" if result['tasks_failed'] else "dim")
     console.print(f"Cache: [cyan]{result['cache_path']}[/cyan]")
+
+
+# ── discover-relations ──────────────────────────────────────────
+
+@app.command("discover-relations")
+def discover_relations(
+    full: bool = typer.Option(False, "--full", help="Full scan (ignore incremental)"),
+    min_confidence: float = typer.Option(0.6, "--min-confidence", help="Minimum confidence"),
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Discover cross-file relations between nodes."""
+    from projmap.report.relation_discovery import run_relation_discovery
+
+    result = run_relation_discovery(".", incremental=not full, min_confidence=min_confidence)
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold green]Relation discovery complete.[/bold green]")
+    console.print(f"Clusters processed: {result.get('clusters_processed', 0)}")
+    console.print(f"Edges discovered:   {result.get('edges_discovered', 0)}")
+    console.print(f"Edges inserted:     {result.get('edges_inserted', 0)}", style="green")
+    console.print(f"Edges dropped:      {result.get('edges_dropped_unresolved', 0)}", style="yellow")
+
+
+# ── prepare-relations ───────────────────────────────────────────
+
+@app.command("prepare-relations")
+def prepare_relations(
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Prepare relation discovery tasks for external LLM."""
+    from projmap.report.relation_discovery import prepare_relation_tasks
+
+    result = prepare_relation_tasks(".")
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold green]Prepared {result.get('tasks_created', 0)} relation tasks.[/bold green]")
+    console.print(f"Task dir:    [cyan]{result.get('task_dir', '')}[/cyan]")
+    console.print(f"Result dir:  [cyan]{result.get('result_dir', '')}[/cyan]")
+
+
+# ── import-relations ────────────────────────────────────────────
+
+@app.command("import-relations")
+def import_relations(
+    min_confidence: float = typer.Option(0.6, "--min-confidence", help="Minimum confidence"),
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Import relation discovery results from external LLM."""
+    from projmap.report.relation_discovery import import_relation_results
+
+    result = import_relation_results(".", min_confidence=min_confidence)
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold green]Imported {result.get('results_imported', 0)} results.[/bold green]")
+    console.print(f"Edges inserted: {result.get('edges_inserted', 0)}", style="green")
+    if result.get("results_failed", 0):
+        console.print(f"Failed: {result['results_failed']}", style="yellow")
+
+
+# ── prepare-brief-sections ──────────────────────────────────────
+
+@app.command("prepare-brief-sections")
+def prepare_brief_sections(
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Prepare brief section tasks for external LLM."""
+    from projmap.report.llm_enricher import prepare_brief_section_tasks
+
+    result = prepare_brief_section_tasks(".")
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold green]Prepared {result.get('sections_prepared', 0)} section tasks.[/bold green]")
+
+
+# ── import-brief-sections ───────────────────────────────────────
+
+@app.command("import-brief-sections")
+def import_brief_sections(
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Import brief section results from external LLM."""
+    from projmap.report.llm_enricher import import_brief_section_results
+
+    result = import_brief_section_results(".")
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold green]Imported {result.get('sections_imported', 0)} sections.[/bold green]")
+    if result.get("sections_failed", 0):
+        console.print(f"Failed: {result['sections_failed']}", style="yellow")
+
+
+# ── eval-relations ──────────────────────────────────────────────
+
+@app.command("eval-relations")
+def eval_relations(
+    ground_truth: str = typer.Option(..., "--ground-truth", help="Path to ground truth JSON"),
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """Evaluate relation discovery against ground truth."""
+    from projmap.eval.relation_eval import eval_relations as eval_fn
+
+    result = eval_fn(".", ground_truth)
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold]Relation Eval[/bold]")
+    console.print(f"Precision: {result.get('precision', 0):.2f}")
+    console.print(f"Recall:    {result.get('recall', 0):.2f}")
+    console.print(f"F1:        {result.get('f1', 0):.2f}")
+
+
+# ── eval-brief ──────────────────────────────────────────────────
+
+@app.command("eval-brief")
+def eval_brief(
+    docs_dir: str = typer.Option("docs/", "--docs-dir", help="Directory with source docs"),
+    question: str = typer.Option(..., "--question", help="Question to compare"),
+    format: FormatOption = typer.Option(None, "--format", help="Output format: json"),
+) -> None:
+    """A/B test: projMap brief vs direct Claude."""
+    from projmap.eval.brief_eval import eval_brief_vs_claude
+
+    result = eval_brief_vs_claude(".", docs_dir, question)
+
+    if _json_or_error(result, format):
+        return
+
+    console.print(f"[bold]Brief A/B Eval[/bold]")
+    console.print(f"projMap has edges: {result.get('projmap_has_edges', False)}")
+    console.print(f"Claude has edges:  {result.get('claude_has_edges', False)}")
 
 
 # ── context ─────────────────────────────────────────────────────

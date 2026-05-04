@@ -330,6 +330,50 @@ def get_status(project_root: str = ".") -> dict:
     )
 
 
+def update_project(
+    project_root: str = ".",
+    min_confidence: float = 0.55,
+) -> dict:
+    """Incremental update: extract changed files, discover relations, refresh brief.
+
+    Steps:
+    1. scan → extract changed/new files
+    2. relation discovery (incremental)
+    3. refresh brief cache
+    """
+    # Step 1: Rebuild (extraction)
+    rebuild_result = rebuild_project(project_root)
+
+    # Step 2: Relation discovery (incremental, skip if no API key)
+    relation_result = None
+    try:
+        extractor = AnthropicExtractor(
+            model=load_config(project_root).llm_model,
+            api_key_env=load_config(project_root).api_key_env,
+        )
+        _ = extractor.api_key
+        relation_result = run_relation_discovery(
+            project_root, incremental=True, min_confidence=0.6,
+        )
+    except SystemExit:
+        pass
+    except Exception:
+        pass
+
+    # Step 3: Refresh brief sections cache (if API key available)
+    brief_result = None
+    try:
+        brief_result = generate_brief_sections_api(project_root)
+    except Exception:
+        pass
+
+    return _ok(
+        extraction=rebuild_result,
+        relations=relation_result,
+        brief=brief_result,
+    )
+
+
 def get_context(task: str, project_root: str = ".", limit: int = 20) -> dict:
     """Phase 2 placeholder."""
     return {
@@ -347,3 +391,16 @@ def get_context(task: str, project_root: str = ".", limit: int = 20) -> dict:
 
 from projmap.pipeline.extraction import prepare_extraction, import_extraction  # noqa: E402
 from projmap.pipeline.skill import install_skill_fn, SKILL_MD  # noqa: E402
+from projmap.report.relation_discovery import (  # noqa: E402
+    run_relation_discovery,
+    prepare_relation_tasks,
+    import_relation_results,
+)
+from projmap.report.llm_enricher import (  # noqa: E402
+    prepare_brief_tasks,
+    import_brief_results,
+    prepare_brief_section_tasks,
+    import_brief_section_results,
+    generate_brief_sections_api,
+    load_cached_brief_sections,
+)

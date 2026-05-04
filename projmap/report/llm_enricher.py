@@ -9,17 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from projmap.config import load_config
-from projmap.report.prompts import (
-    ENRICH_SYSTEM_PROMPT,
-    ENRICH_USER_PROMPT_TEMPLATE,
-    QUERY_ENRICH_SYSTEM_PROMPT,
-    QUERY_ENRICH_USER_PROMPT_TEMPLATE,
-    BRIEF_STATUS_PROMPT,
-)
+from projmap.prompts import load as load_prompt, split_prompt_sections
 
 BRIEF_TASK_DIR = "brief_tasks"
 BRIEF_RESULT_DIR = "brief_results"
@@ -63,7 +58,6 @@ def _parse_enrichment_response(raw: str, node_ids: list[str]) -> list[dict]:
     if not isinstance(parsed, list):
         raise ValueError(f"Expected list, got {type(parsed).__name__}")
 
-    # Build lookup by id
     by_id = {}
     for item in parsed:
         nid = item.get("id", "")
@@ -77,7 +71,6 @@ def _parse_enrichment_response(raw: str, node_ids: list[str]) -> list[dict]:
             "match_reason": item.get("match_reason", ""),
         }
 
-    # Return in original order, filling gaps with defaults
     results = []
     for nid in node_ids:
         results.append(by_id.get(nid, _default_enrichment()))
@@ -85,7 +78,6 @@ def _parse_enrichment_response(raw: str, node_ids: list[str]) -> list[dict]:
 
 
 def _default_enrichment() -> dict:
-    """Empty enrichment — signals that LLM enrichment was not available."""
     return {
         "display_title": "",
         "group": "",
@@ -98,7 +90,6 @@ def _default_enrichment() -> dict:
 
 
 def _parse_status_response(raw: str) -> dict:
-    """Parse LLM brief-status response."""
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
@@ -109,6 +100,29 @@ def _parse_status_response(raw: str) -> dict:
         "current_status": parsed.get("current_status", "Status unknown"),
         "confidence": float(parsed.get("confidence", 0.5)),
     }
+
+
+# ── Semantic batching ────────────────────────────────────────────
+
+def _semantic_batch(nodes: list[dict], batch_size: int = 30) -> list[list[dict]]:
+    """Batch nodes by type + project + module for semantic coherence."""
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for n in nodes:
+        key = f"{n.get('type', '')}|{n.get('project', '')}|{n.get('module', '')}"
+        groups[key].append(n)
+
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    for group in sorted(groups.values(), key=len, reverse=True):
+        group.sort(key=lambda n: n.get("version", "") or "")
+        for node in group:
+            current.append(node)
+            if len(current) >= batch_size:
+                batches.append(current)
+                current = []
+    if current:
+        batches.append(current)
+    return batches
 
 
 # ── API mode ──────────────────────────────────────────────────────
@@ -130,16 +144,14 @@ def enrich_nodes_api(
     nodes_json = json.dumps(serialized, ensure_ascii=False, indent=2)
     node_ids = [n.get("id", "") for n in nodes]
 
+    purpose = "enrichment_query" if query else "enrichment"
+    pack = load_prompt(purpose=purpose)
+    system, user_template = split_prompt_sections(pack.prompt_text)
+
+    fmt_kwargs = {"count": len(serialized), "nodes_json": nodes_json}
     if query:
-        system = QUERY_ENRICH_SYSTEM_PROMPT
-        user = QUERY_ENRICH_USER_PROMPT_TEMPLATE.format(
-            query=query, count=len(serialized), nodes_json=nodes_json,
-        )
-    else:
-        system = ENRICH_SYSTEM_PROMPT
-        user = ENRICH_USER_PROMPT_TEMPLATE.format(
-            count=len(serialized), nodes_json=nodes_json,
-        )
+        fmt_kwargs["query"] = query
+    user = user_template.format(**fmt_kwargs)
 
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
@@ -165,6 +177,9 @@ def get_brief_status_api(
     if not api_key:
         raise SystemExit(f"Missing {api_key_env}.")
 
+    pack = load_prompt(purpose="brief_status")
+    system, user_template = split_prompt_sections(pack.prompt_text)
+
     top_nodes = [
         {
             "display_title": n.get("display_title", ""),
@@ -175,14 +190,15 @@ def get_brief_status_api(
         for n in enriched_nodes[:20]
     ]
     top_json = json.dumps(top_nodes, ensure_ascii=False, indent=2)
+    user = user_template.format(sections_json=top_json)
 
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model=model,
         max_tokens=1024,
         temperature=0.0,
-        system="Return only valid JSON.",
-        messages=[{"role": "user", "content": BRIEF_STATUS_PROMPT.format(top_nodes_json=top_json)}],
+        system=system,
+        messages=[{"role": "user", "content": user}],
     )
     return _parse_status_response(message.content[0].text)
 
@@ -216,11 +232,14 @@ def prepare_brief_tasks(
     nodes = store.get_all_nodes_as_dicts()
     store.close()
 
-    # Split into batches of ~30 nodes per task (context limit)
-    batch_size = 30
+    # Write prompt from registry
+    prompt_pack = load_prompt(purpose="enrichment")
+    (task_dir / "prompt.md").write_text(prompt_pack.prompt_text, encoding="utf-8")
+
+    # Semantic batching instead of index-order
+    batches = _semantic_batch(nodes, batch_size=30)
     tasks = []
-    for i in range(0, len(nodes), batch_size):
-        batch = nodes[i:i + batch_size]
+    for batch in batches:
         task_num = len(tasks) + 1
         task_id = f"brief_task_{task_num:04d}"
 
@@ -231,11 +250,6 @@ def prepare_brief_tasks(
             "schema_version": BRIEF_SCHEMA_VERSION,
             "task_id": task_id,
             "node_ids": node_ids,
-            "system_prompt": ENRICH_SYSTEM_PROMPT,
-            "user_prompt": ENRICH_USER_PROMPT_TEMPLATE.format(
-                count=len(serialized),
-                nodes_json=json.dumps(serialized, ensure_ascii=False, indent=2),
-            ),
             "expected_result_count": len(serialized),
         }
 
@@ -249,9 +263,10 @@ def prepare_brief_tasks(
             "node_count": len(serialized),
         })
 
-    # Write manifest
     manifest = {
         "schema_version": BRIEF_SCHEMA_VERSION,
+        "prompt_version": prompt_pack.version,
+        "prompt_path": f".projmap/{BRIEF_TASK_DIR}/prompt.md",
         "project_name": cfg.project_name,
         "project_root": str(root),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -298,7 +313,6 @@ def import_brief_results(project_root: str = ".") -> dict:
 
         try:
             raw = json.loads(result_path.read_text())
-            # Support both direct array and {"enrichments": [...]} formats
             items = raw if isinstance(raw, list) else raw.get("enrichments", raw.get("results", []))
             node_ids = task.get("node_ids", [])
 
@@ -311,10 +325,9 @@ def import_brief_results(project_root: str = ".") -> dict:
                 enrichments[nid] = enrich
 
             imported += 1
-        except Exception as e:
+        except Exception:
             failed += 1
 
-    # Cache enrichments
     cache_path = root / ".projmap" / "enrichment_cache.json"
     cache_path.write_text(json.dumps(enrichments, ensure_ascii=False, indent=2))
 
@@ -354,11 +367,9 @@ def enrich_nodes(
     """
     node_ids = [n.get("id", "") for n in nodes]
 
-    # Try API first
     if prefer_api and os.environ.get("ANTHROPIC_API_KEY", "").strip():
         try:
             enrichments = enrich_nodes_api(nodes, query=query, model=model)
-            # Cache the results
             try:
                 cfg = load_config(project_root)
                 cache_path = Path(cfg.root).resolve() / ".projmap" / "enrichment_cache.json"
@@ -374,7 +385,6 @@ def enrich_nodes(
         except Exception:
             pass
 
-    # Fall back to cached external results
     cached = load_cached_enrichments(project_root)
     if cached:
         results = []
@@ -385,5 +395,262 @@ def enrich_nodes(
                 results.append(_default_enrichment())
         return results, False
 
-    # No enrichment available — return defaults
     return [_default_enrichment() for _ in nodes], False
+
+
+# ── Section-aware brief generation ────────────────────────────────
+
+BRIEF_SECTION_TASK_DIR = "brief_section_tasks"
+BRIEF_SECTION_RESULT_DIR = "brief_section_results"
+BRIEF_SECTION_SCHEMA_VERSION = "brief_section_v1"
+
+SECTION_DEFINITIONS = {
+    "constraints": {
+        "node_type": "constraint",
+        "edge_types": ["depends-on", "mitigates", "conflicts-with"],
+        "description": "Project constraints — things that must be true or must not be violated.",
+    },
+    "decisions": {
+        "node_type": "decision",
+        "edge_types": ["supersedes", "depends-on", "implements"],
+        "description": "Project decisions — choices made, including supersession chains.",
+    },
+    "risks": {
+        "node_type": "risk",
+        "edge_types": ["mitigates", "depends-on"],
+        "description": "Project risks — threats and their mitigation status.",
+    },
+}
+
+
+def _parse_section_response(raw: str) -> dict:
+    """Parse a brief section LLM response."""
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [l for l in lines[1:] if not l.strip().startswith("```")]
+        text = "\n".join(lines)
+    return json.loads(text)
+
+
+def generate_brief_sections_api(
+    project_root: str = ".",
+    model: str = "claude-sonnet-4-20250514",
+    api_key_env: str = "ANTHROPIC_API_KEY",
+) -> dict:
+    """Generate brief sections by querying DuckDB per section with full graph context."""
+    import anthropic
+
+    try:
+        cfg = load_config(project_root)
+    except FileNotFoundError:
+        return {"ok": False, "error": "Not initialized"}
+
+    api_key = os.environ.get(api_key_env, "").strip()
+    if not api_key:
+        return {"ok": False, "error": f"Missing {api_key_env}"}
+
+    store = DuckDBStore(cfg.db_path)
+    client = anthropic.Anthropic(api_key=api_key)
+
+    section_pack = load_prompt(purpose="brief_section")
+    section_system, section_user_tmpl = split_prompt_sections(section_pack.prompt_text)
+
+    status_pack = load_prompt(purpose="brief_status")
+    status_system, status_user_tmpl = split_prompt_sections(status_pack.prompt_text)
+
+    sections = {}
+    for section_name, section_def in SECTION_DEFINITIONS.items():
+        node_edges = store.query_nodes_with_edges(
+            node_type=section_def["node_type"],
+            include_edge_types=section_def["edge_types"],
+        )
+        if not node_edges:
+            sections[section_name] = {"section_summary": "No data available.", "items": []}
+            continue
+
+        section_data_json = json.dumps(node_edges, ensure_ascii=False, indent=2)
+        user = section_user_tmpl.format(
+            section_name=section_name,
+            section_description=section_def["description"],
+            section_data_json=section_data_json,
+        )
+
+        try:
+            message = client.messages.create(
+                model=model, max_tokens=4096, temperature=0.0,
+                system=section_system,
+                messages=[{"role": "user", "content": user}],
+            )
+            sections[section_name] = _parse_section_response(message.content[0].text)
+        except Exception as exc:
+            sections[section_name] = {"section_summary": f"Error: {exc}", "items": []}
+
+    # Overall status from section summaries
+    summaries = {
+        name: data.get("section_summary", "")
+        for name, data in sections.items()
+    }
+    sections_json = json.dumps(summaries, ensure_ascii=False, indent=2)
+    status_user = status_user_tmpl.format(sections_json=sections_json)
+
+    try:
+        message = client.messages.create(
+            model=model, max_tokens=1024, temperature=0.0,
+            system=status_system,
+            messages=[{"role": "user", "content": status_user}],
+        )
+        overall_status = _parse_status_response(message.content[0].text)
+    except Exception:
+        overall_status = {"current_status": "Status unavailable", "confidence": 0.0}
+
+    store.close()
+
+    # Cache results
+    root = Path(cfg.root).resolve()
+    cache_path = root / ".projmap" / "brief_sections_cache.json"
+    cache_data = {"sections": sections, "current_status": overall_status}
+    cache_path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2))
+
+    return {"ok": True, "sections": sections, "current_status": overall_status}
+
+
+def prepare_brief_section_tasks(project_root: str = ".") -> dict:
+    """Write section task files for external LLM."""
+    from projmap.storage.duckdb_store import DuckDBStore
+
+    try:
+        cfg = load_config(project_root)
+    except FileNotFoundError:
+        return {"ok": False, "error": "Not initialized"}
+
+    root = Path(cfg.root).resolve()
+    task_dir = root / ".projmap" / BRIEF_SECTION_TASK_DIR
+    result_dir = root / ".projmap" / BRIEF_SECTION_RESULT_DIR
+
+    if task_dir.exists():
+        for f in task_dir.iterdir():
+            f.unlink()
+    if result_dir.exists():
+        for f in result_dir.iterdir():
+            f.unlink()
+
+    task_dir.mkdir(parents=True, exist_ok=True)
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    store = DuckDBStore(cfg.db_path)
+
+    # Write prompts from registry
+    section_pack = load_prompt(purpose="brief_section")
+    (task_dir / "prompt.md").write_text(section_pack.prompt_text, encoding="utf-8")
+
+    status_pack = load_prompt(purpose="brief_status")
+    (task_dir / "status_prompt.md").write_text(status_pack.prompt_text, encoding="utf-8")
+
+    tasks = []
+    for section_name, section_def in SECTION_DEFINITIONS.items():
+        node_edges = store.query_nodes_with_edges(
+            node_type=section_def["node_type"],
+            include_edge_types=section_def["edge_types"],
+        )
+        section_data = {
+            "section_name": section_name,
+            "section_description": section_def["description"],
+            "data": node_edges,
+        }
+        (task_dir / f"{section_name}.json").write_text(
+            json.dumps(section_data, ensure_ascii=False, indent=2)
+        )
+        tasks.append({
+            "section_name": section_name,
+            "data_path": f".projmap/{BRIEF_SECTION_TASK_DIR}/{section_name}.json",
+            "result_path": f".projmap/{BRIEF_SECTION_RESULT_DIR}/{section_name}.result.json",
+        })
+
+    store.close()
+
+    manifest = {
+        "schema_version": BRIEF_SECTION_SCHEMA_VERSION,
+        "project_name": cfg.project_name,
+        "project_root": str(root),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "mode": "external_brief_sections",
+        "tasks": tasks,
+    }
+    (task_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2)
+    )
+
+    return {
+        "ok": True,
+        "sections_prepared": len(tasks),
+        "task_dir": f".projmap/{BRIEF_SECTION_TASK_DIR}",
+        "result_dir": f".projmap/{BRIEF_SECTION_RESULT_DIR}",
+    }
+
+
+def import_brief_section_results(project_root: str = ".") -> dict:
+    """Read section results from external LLM and cache."""
+    try:
+        cfg = load_config(project_root)
+    except FileNotFoundError:
+        return {"ok": False, "error": "Not initialized"}
+
+    root = Path(cfg.root).resolve()
+    manifest_path = root / ".projmap" / BRIEF_SECTION_TASK_DIR / "manifest.json"
+    result_dir = root / ".projmap" / BRIEF_SECTION_RESULT_DIR
+
+    if not manifest_path.exists():
+        return {"ok": False, "error": "No manifest found"}
+
+    manifest = json.loads(manifest_path.read_text())
+    sections = {}
+    imported = 0
+    failed = 0
+
+    for task in manifest.get("tasks", []):
+        section_name = task["section_name"]
+        result_path = result_dir / f"{section_name}.result.json"
+        if not result_path.exists():
+            sections[section_name] = {"section_summary": "No result", "items": []}
+            failed += 1
+            continue
+        try:
+            data = json.loads(result_path.read_text())
+            sections[section_name] = data
+            imported += 1
+        except Exception:
+            sections[section_name] = {"section_summary": "Parse error", "items": []}
+            failed += 1
+
+    # Read overall status result if present
+    status_result_path = result_dir / "status.result.json"
+    current_status = {"current_status": "Unknown", "confidence": 0.0}
+    if status_result_path.exists():
+        try:
+            current_status = _parse_status_response(status_result_path.read_text())
+        except Exception:
+            pass
+
+    cache_path = root / ".projmap" / "brief_sections_cache.json"
+    cache_data = {"sections": sections, "current_status": current_status}
+    cache_path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2))
+
+    return {
+        "ok": True,
+        "sections_imported": imported,
+        "sections_failed": failed,
+        "cache_path": ".projmap/brief_sections_cache.json",
+    }
+
+
+def load_cached_brief_sections(project_root: str = ".") -> dict | None:
+    """Load cached brief sections. Returns None if no cache exists."""
+    try:
+        cfg = load_config(project_root)
+    except FileNotFoundError:
+        return None
+    cache_path = Path(cfg.root).resolve() / ".projmap" / "brief_sections_cache.json"
+    if not cache_path.exists():
+        return None
+    return json.loads(cache_path.read_text())

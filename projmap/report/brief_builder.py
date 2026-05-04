@@ -59,8 +59,76 @@ def build_brief(
     project_hint: str | None = None,
     enrichments: dict[str, dict] | None = None,
     llm_status: dict | None = None,
+    llm_sections: dict | None = None,
 ) -> dict:
-    """Build a ProjectBrief from raw node dicts. Requires LLM enrichments."""
+    """Build a ProjectBrief from raw node dicts.
+
+    When llm_sections is provided (from generate_brief_sections_api),
+    use section-aware brief directly. Otherwise fallback to enrichment-based.
+    """
+    if llm_sections is not None:
+        return _build_brief_from_sections(nodes, edge_counts, project_hint, llm_sections)
+
+    return _build_brief_enrichment_based(nodes, edge_counts, project_hint, enrichments, llm_status)
+
+
+def _build_brief_from_sections(
+    nodes: list[dict],
+    edge_counts: dict[str, dict] | None = None,
+    project_hint: str | None = None,
+    llm_sections: dict | None = None,
+) -> dict:
+    """Build brief from LLM-generated sections (section-aware path)."""
+    enriched = []
+    for n in nodes:
+        enriched.append(enrich_node(n, edge_counts))
+
+    project_nodes = [n for n in enriched if n["source_scope"] != "agent_instruction"]
+    project_counts = Counter(n["project"] for n in project_nodes)
+    dominant_project = project_counts.most_common(1)[0][0] if project_nodes else "Unknown"
+
+    sections = llm_sections.get("sections", {}) if llm_sections else {}
+    current_status = (llm_sections.get("current_status", {}) if llm_sections else {}).get(
+        "current_status", "Status unknown"
+    )
+
+    return {
+        "project": project_hint or dominant_project,
+        "version": "-",
+        "current_status": current_status,
+        "sections": {
+            "current_status": None,
+            "do_not_cross_constraints": sections.get("constraints", {}).get("items", []),
+            "key_decisions": sections.get("decisions", {}).get("items", []),
+            "active_risks": sections.get("risks", {}).get("items", []),
+        },
+        "section_summaries": {
+            name: data.get("section_summary", "")
+            for name, data in sections.items()
+        },
+        "grouped": {},
+        "evidence_sources": sorted(set(n["source_file"] for n in project_nodes if n.get("source_file"))),
+        "all_nodes": enriched,
+        "stats": {
+            "total_nodes": len(nodes),
+            "project_nodes": len(project_nodes),
+            "agent_instruction_nodes": 0,
+            "constraints": len(sections.get("constraints", {}).get("items", [])),
+            "decisions": len(sections.get("decisions", {}).get("items", [])),
+            "risks": len(sections.get("risks", {}).get("items", [])),
+        },
+        "section_aware": True,
+    }
+
+
+def _build_brief_enrichment_based(
+    nodes: list[dict],
+    edge_counts: dict[str, dict] | None = None,
+    project_hint: str | None = None,
+    enrichments: dict[str, dict] | None = None,
+    llm_status: dict | None = None,
+) -> dict:
+    """Build brief from enrichment-based path (original logic)."""
     enriched = []
     for n in nodes:
         nid = n.get("id", "")

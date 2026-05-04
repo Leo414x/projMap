@@ -124,6 +124,11 @@ CREATE TABLE IF NOT EXISTS sources (
 """
 
 # v5 migration: add columns to nodes if they don't exist
+EDGE_SOURCE_MIGRATION = [
+    "ALTER TABLE edges ADD COLUMN source TEXT DEFAULT ''",
+]
+
+
 V5_MIGRATIONS = [
     "ALTER TABLE nodes ADD COLUMN title TEXT",
     "ALTER TABLE nodes ADD COLUMN summary TEXT",
@@ -177,6 +182,15 @@ class DuckDBStore:
         for sql in V5_MIGRATIONS:
             col = sql.split("ADD COLUMN ")[1].split(" ")[0]
             if col not in existing:
+                try:
+                    self.conn.execute(sql)
+                except Exception:
+                    pass
+
+        edge_existing = self._get_columns("edges")
+        for sql in EDGE_SOURCE_MIGRATION:
+            col = sql.split("ADD COLUMN ")[1].split(" ")[0]
+            if col not in edge_existing:
                 try:
                     self.conn.execute(sql)
                 except Exception:
@@ -456,16 +470,18 @@ class DuckDBStore:
         confidence: float,
         source_file: str,
         source_chunk_id: str,
+        source: str = "",
     ) -> None:
         self.conn.execute(
             """
             INSERT INTO edges (id, from_node_id, to_node_id, relationship,
                                evidence_quote, confidence, source_file,
-                               source_chunk_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               source_chunk_id, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [edge_id, from_node_id, to_node_id, relationship,
-             evidence_quote, confidence, source_file, source_chunk_id, now_iso()],
+             evidence_quote, confidence, source_file, source_chunk_id,
+             source, now_iso()],
         )
 
     def get_edge_counts_by_node(self) -> dict[str, dict[str, int]]:
@@ -487,6 +503,96 @@ class DuckDBStore:
         ).fetchall()
         columns = [desc[0] for desc in self.conn.description]
         return [dict(zip(columns, row)) for row in rows]
+
+    def get_node_ids_with_edges(self, source_filter: str | None = None) -> set[str]:
+        """Get node IDs that appear in edges, optionally filtered by edge source."""
+        if source_filter:
+            rows = self.conn.execute(
+                "SELECT DISTINCT from_node_id FROM edges WHERE source = ? "
+                "UNION "
+                "SELECT DISTINCT to_node_id FROM edges WHERE source = ?",
+                [source_filter, source_filter],
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT DISTINCT from_node_id FROM edges "
+                "UNION "
+                "SELECT DISTINCT to_node_id FROM edges",
+            ).fetchall()
+        return {r[0] for r in rows if r[0]}
+
+    def query_nodes_with_edges(
+        self,
+        node_type: str | None = None,
+        include_edge_types: list[str] | None = None,
+        fields: list[str] | None = None,
+    ) -> list[dict]:
+        """Query nodes with their connected edges inlined.
+
+        Returns list of dicts with 'node' and 'edges' keys.
+        Each edge dict includes 'connected_node' with the other node's id/type/content.
+        """
+        # Build node query
+        conditions = []
+        params: list[Any] = []
+        if node_type:
+            conditions.append("type = ?")
+            params.append(node_type)
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+        node_fields = ", ".join(fields) if fields else "*"
+        rows = self.conn.execute(
+            f"SELECT {node_fields} FROM nodes WHERE {where} ORDER BY sort_time DESC NULLS LAST",
+            params,
+        ).fetchall()
+        columns = [desc[0] for desc in self.conn.description]
+        nodes = [dict(zip(columns, row)) for row in rows]
+
+        if not nodes:
+            return []
+
+        node_ids = [n["id"] for n in nodes]
+        node_map = {n["id"]: n for n in nodes}
+
+        # Build edge filter
+        edge_conditions = []
+        edge_params: list[Any] = []
+        if include_edge_types:
+            placeholders = ",".join(["?"] * len(include_edge_types))
+            edge_conditions.append(f"relationship IN ({placeholders})")
+            edge_params.extend(include_edge_types)
+
+        edge_where = (" AND " + " AND ".join(edge_conditions)) if edge_conditions else ""
+
+        # Fetch edges where from_node_id or to_node_id is in our node set
+        placeholders = ",".join(["?"] * len(node_ids))
+        edge_rows = self.conn.execute(
+            f"SELECT * FROM edges WHERE "
+            f"from_node_id IN ({placeholders}) OR to_node_id IN ({placeholders})"
+            f"{edge_where}",
+            edge_params + node_ids + node_ids,
+        ).fetchall()
+        edge_columns = [desc[0] for desc in self.conn.description]
+        edges = [dict(zip(edge_columns, row)) for row in edge_rows]
+
+        # Group edges by node_id
+        edges_by_node: dict[str, list[dict]] = {nid: [] for nid in node_ids}
+        for edge in edges:
+            for nid in (edge.get("from_node_id"), edge.get("to_node_id")):
+                if nid in node_map:
+                    connected_nid = edge.get("to_node_id") if nid == edge.get("from_node_id") else edge.get("from_node_id")
+                    connected_node = node_map.get(connected_nid)
+                    edge_entry = {
+                        **edge,
+                        "connected_node": {
+                            "id": connected_nid,
+                            "type": connected_node.get("type", "") if connected_node else "",
+                            "content": connected_node.get("content", "") if connected_node else "",
+                        } if connected_node else {"id": connected_nid, "type": "", "content": ""},
+                    }
+                    edges_by_node[nid].append(edge_entry)
+
+        return [{"node": node_map[nid], "edges": edges_by_node[nid]} for nid in node_ids]
 
     # ── sources ────────────────────────────────────────────────
 

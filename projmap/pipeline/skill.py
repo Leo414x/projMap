@@ -7,7 +7,7 @@ from pathlib import Path
 
 SKILL_MD = r'''---
 name: projmap-memory
-description: Use this skill when the user asks to update, rebuild, refresh, inspect, query, or view projMap project memory. Supports extraction, querying decisions, and AI context output.
+description: Use this skill when the user asks to update, rebuild, refresh, inspect, query, or view projMap project memory. Supports extraction, relation discovery, enrichment, section-aware brief, and AI context output.
 ---
 
 # projMap Memory Skill
@@ -74,21 +74,42 @@ projMap is not initialized. Run `projmap init --install-skill` first.
 
 ### Steps
 
-1. `projmap status --format json` — confirm initialized.
-2. `projmap scan --format json` — discover changed files.
-3. `projmap prepare-extraction --limit <N> --format json` — generate tasks + prompt.
+1. `projmap status --format json` - confirm initialized.
+2. `projmap scan --format json` - discover changed files.
+3. `projmap prepare-extraction --limit <N> --format json` - generate tasks + prompt.
    Default limit is 10 unless the user specifies another number.
-4. Read `.projmap/extraction_tasks/prompt.md` — this is the extraction prompt.
-5. Read `.projmap/extraction_tasks/schema.json` — this is the output schema.
-6. Read `.projmap/extraction_tasks/examples.json` — these are quality examples.
-7. Read `.projmap/extraction_tasks/task_manifest.json` — this is the task list.
+4. Read `.projmap/extraction_tasks/prompt.md` - this is the extraction prompt.
+5. Read `.projmap/extraction_tasks/schema.json` - this is the output schema.
+6. Read `.projmap/extraction_tasks/examples.json` - these are quality examples.
+7. Read `.projmap/extraction_tasks/task_manifest.json` - this is the task list.
 8. For each task in the manifest:
    a. Read the task file at `task_path`.
    b. Follow the instructions in `prompt.md` exactly to extract project memory.
    c. Validate output against `schema.json`.
    d. Write the result JSON to `result_path`.
-9. `projmap import-extraction --format json` — import results into graph.
-10. `projmap status --format json` — report final state.
+9. `projmap import-extraction --format json` - import results into graph.
+10. `projmap prepare-relations --format json` - generate relation discovery tasks.
+11. Read `.projmap/relation_tasks/prompt.md` - this is the relation prompt.
+12. For each task in `.projmap/relation_tasks/manifest.json`:
+    a. Read the task file.
+    b. Follow the prompt to identify cross-node relationships.
+    c. Write the result JSON to `result_path`.
+13. `projmap import-relations --format json` - import relation edges.
+14. `projmap prepare-brief --format json` - generate enrichment tasks.
+15. Read `.projmap/brief_tasks/prompt.md` - this is the enrichment prompt.
+16. For each task in `.projmap/brief_tasks/manifest.json`:
+    a. Read the task file.
+    b. Follow the prompt to enrich nodes.
+    c. Write the result JSON to `result_path`.
+17. `projmap import-brief --format json` - import enrichments.
+18. `projmap prepare-brief-sections --format json` - generate section brief tasks.
+19. Read `.projmap/brief_section_tasks/prompt.md` - this is the section prompt.
+20. For each section (constraints, decisions, risks):
+    a. Read the section data file.
+    b. Follow the prompt to generate the section.
+    c. Write result to `.projmap/brief_section_results/{section}.result.json`.
+21. `projmap import-brief-sections --format json` - import section results.
+22. `projmap status --format json` - report final state.
 
 ### Error handling
 
@@ -118,7 +139,7 @@ If recovery is needed, perform it silently unless user action is required.
 - Do not modify model code.
 - Do not modify historical audit artifacts.
 - Only write inside `.projmap/`.
-- If a result file must be created, write it only under `.projmap/extraction_results/`.
+- If a result file must be created, write it only under `.projmap/extraction_results/`, `.projmap/relation_results/`, or `.projmap/brief_section_results/`.
 - Do not edit source project documents unless the user explicitly asks.
 
 ## Update response format
@@ -129,11 +150,13 @@ Only report:
 projMap memory updated.
 
 scanned_files: <number>
-tasks_created: <number>
+extraction_tasks: <number>
 results_imported: <number>
 results_failed: <number>
 nodes_inserted: <number>
 edges_inserted: <number>
+relation_edges: <number>
+sections_generated: <number>
 
 Current graph:
 nodes: <number>
