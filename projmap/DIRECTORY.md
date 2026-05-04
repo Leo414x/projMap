@@ -6,11 +6,12 @@
 
 | 文件 | 行数 | 职责 |
 |---|---:|---|
-| `__init__.py` | 1 | 包初始化 |
-| `cli.py` | 658 | CLI 命令定义（Typer）。解析参数，调 api/pipeline/report 层，格式化输出 |
-| `api.py` | 362 | 稳定内部 API 层。init / scan / rebuild / get_status / get_context + re-export extraction/skill 函数 |
+| `__init__.py` | 3 | 包初始化，暴露 `__version__` |
+| `cli.py` | 627 | CLI 命令定义（Typer）。解析参数，调 api/pipeline/report 层，格式化输出 |
+| `api.py` | 348 | 稳定内部 API 层。init / scan / rebuild / get_status / get_context + re-export extraction/skill 函数 |
 | `config.py` | 167 | 配置加载。读写 `.projmap/config.toml` |
 | `schemas.py` | 199 | Pydantic 数据模型。ChunkRecord / ExtractionResult / Node / Edge / ID 生成 |
+| `util.py` | 23 | 共享工具函数。`_ok` / `_err` / `resolve_edge_node`（供 api / pipeline / skill 共用） |
 
 ## 子目录
 

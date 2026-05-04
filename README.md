@@ -6,7 +6,7 @@
 
 | 文件 | 用途 |
 |---|---|
-| `pyproject.toml` | Python 包配置、依赖、CLI 入口点 |
+| `pyproject.toml` | Python 包配置、依赖（已固定版本）、ruff/pytest 配置、CLI 入口点 |
 | `README.md` | 本文件 |
 | `CHANGES_REPORT_LAYER.md` | Report Layer 重构改动明细 |
 

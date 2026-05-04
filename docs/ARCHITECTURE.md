@@ -143,10 +143,11 @@ depends-on, conflicts-with, supersedes, traces-back-to, mitigates, implements, a
 
 ```
 projmap/
-├── cli.py              # CLI 命令（Typer），658 行
-├── api.py              # 稳定内部 API 层 + re-export，362 行
+├── cli.py              # CLI 命令（Typer），627 行
+├── api.py              # 稳定内部 API 层 + re-export，348 行
 ├── config.py           # 配置读写
 ├── schemas.py          # Pydantic 数据模型
+├── util.py             # 共享工具函数（_ok / _err / resolve_edge_node）
 │
 ├── ingestion/          # 数据摄入
 │   ├── scanner.py      # 文件扫描 + hash
@@ -159,7 +160,7 @@ projmap/
 │   └── skill.py        # projMap Memory Skill 安装
 │
 ├── storage/            # 数据持久化
-│   ├── duckdb_store.py # DuckDB CRUD
+│   ├── duckdb_store.py # DuckDB CRUD（支持 context manager + transaction）
 │   └── cache.py        # 文件 hash 缓存
 │
 ├── display/            # 显示层
