@@ -59,15 +59,12 @@ class TestPrepareExtraction:
 
     def test_task_file_has_content(self, project_dir):
         api.prepare_extraction(str(project_dir))
-        task_dir = project_dir / ".projmap" / "extraction_tasks"
+        task_dir = project_dir / ".projmap/extraction_tasks"
         task_file = sorted(task_dir.glob("task_*.json"))[0]
         data = json.loads(task_file.read_text())
         assert "content" in data
-        assert "instructions" in data
-        assert data["instructions"]["node_types"] == [
-            "decision", "risk", "assumption", "version", "constraint",
-            "config", "evaluation_result", "process_rule", "open_question",
-        ]
+        assert "schema_version" in data
+        assert "task_id" in data
 
     def test_limit(self, project_dir):
         result = api.prepare_extraction(str(project_dir), limit=1)

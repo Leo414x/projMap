@@ -31,35 +31,11 @@ TASK_DIR = "extraction_tasks"
 RESULT_DIR = "extraction_results"
 SCHEMA_VERSION = "external_extraction_v1"
 
-NODE_TYPES = [
-    "decision", "risk", "assumption", "version", "constraint",
-    "config", "evaluation_result", "process_rule", "open_question",
-]
-EDGE_TYPES = [
-    "depends-on", "conflicts-with", "supersedes", "traces-back-to",
-    "mitigates", "implements", "affects", "supports", "limits",
-]
-
-EXTRACTION_RULES = [
-    "Extract project memory: decisions, constraints, risks, assumptions, configs, evaluation results from this chunk.",
-    "A decision is when a specific choice was made (approved, frozen, deprecated, selected a value/architecture/threshold). Do NOT extract plain facts or descriptions as decisions.",
-    "A constraint is a rule that must not be violated (e.g., 'do not X', 'must Y', 'V13 must not reuse prior model code').",
-    "A risk is an identified danger or uncertainty (e.g., 'holdout returned NO_GO', 'may have blind spots').",
-    "Every node must include `evidence_quote`: an exact quote from the chunk that supports the extraction.",
-    "Every node must include `content`: a complete self-contained sentence. BAD: 'K mapping'. GOOD: 'V13 uses K horizons of 3, 6, and 8 bars for prediction targets.'",
-    "Every node must include `title`: a short label (under 60 chars) that summarizes the node. E.g., 'K mapping', 'Training window', 'Deployment status'.",
-    "For `decision` type nodes, also include: `context` (background), `rationale` (why), `scope` (what it covers), `status_hint` (active/paper_only/diagnostic_only/superseded).",
-    "For `decision` type nodes, include: `project_hint` (e.g., 'Trading System'), `version_hint` (e.g., 'V13'), `module_hint` (e.g., 'training', 'evaluation', 'decision_flow').",
-    "Do not invent IDs. The system generates them.",
-    "If a chunk genuinely has no project memory, return empty arrays. But most technical document chunks contain at least 1-3 extractable items.",
-    "Example output for a decision node:",
-    '  {"type":"decision","title":"K mapping","content":"V13 uses K horizons of 3, 6, and 8 bars.","evidence_quote":"K = {3, 6, 8}","confidence":0.85,"status_hint":"active","module_hint":"labeling"}',
-]
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 from projmap.util import _ok, _err, resolve_edge_node
+from projmap.prompts import load as load_prompt
 
 
 # ── Prepare ──────────────────────────────────────────────────────────
@@ -149,11 +125,6 @@ def prepare_extraction(
                 "start_line": chunk.start_line,
                 "end_line": chunk.end_line,
                 "content_hash": chunk.content_hash,
-                "instructions": {
-                    "node_types": NODE_TYPES,
-                    "edge_types": EDGE_TYPES,
-                    "rules": EXTRACTION_RULES,
-                },
                 "content": chunk.content,
             }
             (task_dir / f"{task_id}.json").write_text(
@@ -165,9 +136,23 @@ def prepare_extraction(
         if limit is not None and len(tasks) >= limit:
             break
 
+    # Write prompt files from registry
+    prompt_pack = load_prompt(cfg.prompt_version)
+    (task_dir / "prompt.md").write_text(prompt_pack.prompt_text, encoding="utf-8")
+    (task_dir / "schema.json").write_text(
+        json.dumps(prompt_pack.schema, indent=2, ensure_ascii=False), encoding="utf-8",
+    )
+    (task_dir / "examples.json").write_text(
+        json.dumps(prompt_pack.examples, indent=2, ensure_ascii=False), encoding="utf-8",
+    )
+
     # Write manifest
     manifest = {
         "schema_version": SCHEMA_VERSION,
+        "prompt_version": cfg.prompt_version,
+        "prompt_path": f".projmap/{TASK_DIR}/prompt.md",
+        "schema_path": f".projmap/{TASK_DIR}/schema.json",
+        "examples_path": f".projmap/{TASK_DIR}/examples.json",
         "project_name": cfg.project_name,
         "project_root": str(root),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -181,6 +166,7 @@ def prepare_extraction(
     return _ok(
         mode="external",
         project_root=str(root),
+        prompt_version=cfg.prompt_version,
         scanned_files=len(records),
         new_files=sum(1 for r in records if r.status == "new"),
         changed_files=sum(1 for r in records if r.status == "changed"),
@@ -258,6 +244,20 @@ def import_extraction(
     # Track nodes per file for edge resolution
     file_node_lookups: dict[str, dict[str, str]] = {}
 
+    # Optional JSON Schema validation from prompt registry
+    prompt_schema = None
+    if manifest.get("prompt_version"):
+        try:
+            prompt_pack = load_prompt(manifest["prompt_version"])
+            prompt_schema = prompt_pack.schema
+        except Exception:
+            pass
+    if prompt_schema is None:
+        try:
+            prompt_schema = load_prompt(cfg.prompt_version).schema
+        except Exception:
+            pass
+
     for t in manifest.get("tasks", []):
         tid = t["task_id"]
         chunk_id = t["chunk_id"]
@@ -305,6 +305,22 @@ def import_extraction(
                                     f"task_id/chunk_id/file_path mismatch")
             warnings.append(f"{tid}: task_id/chunk_id/file_path mismatch")
             continue
+
+        # Optional JSON Schema validation
+        if prompt_schema is not None:
+            try:
+                import jsonschema
+                jsonschema.validate(result_data, prompt_schema)
+            except ImportError:
+                warnings.append("jsonschema not installed, skipping schema validation")
+            except Exception as exc:
+                results_failed += 1
+                ext_id = str(uuid.uuid4())
+                store.insert_extraction(ext_id, chunk_id, file_path, "external",
+                                        json.dumps(result_data), None,
+                                        "schema_validation_failed", str(exc))
+                warnings.append(f"{tid}: schema validation failed — {exc}")
+                continue
 
         # Pydantic validate
         try:

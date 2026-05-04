@@ -43,75 +43,61 @@ If the user wants to UPDATE/REFRESH memory: follow the Update Workflow.
 
 ## Query Workflow
 
-Use this when the user wants to see decisions, constraints, risks, or project memory.
-
 ### Step 1: Check initialization
 
 ```bash
 projmap status --format json
 ```
 
-If not initialized, stop and tell the user.
+If not initialized, stop and tell the user:
+projMap is not initialized. Run `projmap init --install-skill` first.
 
 ### Step 2: Run the appropriate command
 
-**For viewing decisions:**
+For viewing decisions: `projmap query "<search_term>"` or `projmap query --all`
+For AI agent context: `projmap context`
+For diagnostics: `projmap doctor`
 
-Try `projmap query "<search_term>"` first. If that command is not available, query DuckDB:
-
-```bash
-python3 -c "
-import duckdb
-con = duckdb.connect('.projmap/projmap.duckdb', read_only=True)
-rows = con.execute('SELECT type, title, project, version, module, status, source_file FROM nodes WHERE is_default_visible = true ORDER BY sort_time DESC NULLS LAST LIMIT 100').fetchall()
-print('| Type | Status | Title | Project | Version | Module | Source |')
-print('|---|---|---|---|---|---|---|')
-for r in rows:
-    t = (r[1] or '')[:60].replace('|','/')
-    print(f'| {r[0]} | {r[5] or \"unknown\"} | {t} | {r[2] or \"\"} | {r[3] or \"\"} | {r[4] or \"\"} | {r[6] or \"\"} |')
-con.close()
-"
-```
-
-Output is a markdown table. Show it directly to the user.
-
-**For AI agent context (all constraints + decisions + configs):**
-
-Try `projmap context` first. If not available, query DuckDB:
-
-```bash
-python3 -c "
-import duckdb
-con = duckdb.connect('.projmap/projmap.duckdb', read_only=True)
-for ntype in ['constraint', 'decision', 'config', 'risk']:
-    rows = con.execute(f\"SELECT title, source_file FROM nodes WHERE type='{ntype}' AND is_default_visible=true ORDER BY sort_time DESC LIMIT 20\").fetchall()
-    if rows:
-        print(f'\\n## {ntype.title()}s')
-        print('| Title | Source |')
-        print('|---|---|')
-        for r in rows:
-            print(f'| {(r[0] or \"(untitled)\")[:80]} | {r[1] or \"\"} |')
-con.close()
-"
-```
-
-**For coverage diagnostics:**
-
-Try `projmap doctor` first. If not available, query DuckDB directly.
+If a CLI command is not available, tell the user to upgrade projMap.
 
 ### Step 3: Output rules
 
-1. Show the command output directly as a table.
-2. Do NOT convert the table into a bullet list.
+Show command output directly. Do NOT convert tables into bullet lists.
 
 ## Update Workflow
 
-Use this when the user wants to update/refresh memory.
+### Initialization rule
+
+If `.projmap/` or `.projmap/config.toml` is missing, do not auto-init.
+Stop and tell the user:
+projMap is not initialized. Run `projmap init --install-skill` first.
+
+### Steps
+
+1. `projmap status --format json` — confirm initialized.
+2. `projmap scan --format json` — discover changed files.
+3. `projmap prepare-extraction --limit <N> --format json` — generate tasks + prompt.
+   Default limit is 10 unless the user specifies another number.
+4. Read `.projmap/extraction_tasks/prompt.md` — this is the extraction prompt.
+5. Read `.projmap/extraction_tasks/schema.json` — this is the output schema.
+6. Read `.projmap/extraction_tasks/examples.json` — these are quality examples.
+7. Read `.projmap/extraction_tasks/task_manifest.json` — this is the task list.
+8. For each task in the manifest:
+   a. Read the task file at `task_path`.
+   b. Follow the instructions in `prompt.md` exactly to extract project memory.
+   c. Validate output against `schema.json`.
+   d. Write the result JSON to `result_path`.
+9. `projmap import-extraction --format json` — import results into graph.
+10. `projmap status --format json` — report final state.
+
+### Error handling
+
+If a task extraction fails, skip it and continue with remaining tasks.
+Report skipped tasks in the final summary.
 
 ## User experience
 
 Do not expose internal task files, manifests, result JSON, schemas, or implementation details unless there is an error.
-
 The user only wants to know whether projMap memory was updated and the final graph counts.
 
 ## Output discipline
@@ -122,18 +108,8 @@ Do not show extraction JSON.
 Do not show task content.
 Do not show task manifests.
 Do not show shell command details unless an error requires user action.
-
 Only show the final summary after all commands complete.
-
 If recovery is needed, perform it silently unless user action is required.
-
-## Initialization rule
-
-If `.projmap/` or `.projmap/config.toml` is missing, do not auto-init.
-
-Stop and tell the user:
-
-projMap is not initialized. Run `projmap init --install-skill` first.
 
 ## Safety rules
 
@@ -144,70 +120,6 @@ projMap is not initialized. Run `projmap init --install-skill` first.
 - Only write inside `.projmap/`.
 - If a result file must be created, write it only under `.projmap/extraction_results/`.
 - Do not edit source project documents unless the user explicitly asks.
-- Default task limit is 10 unless the user specifies another number.
-
-## Update Workflow Steps
-
-1. Run:
-
-```bash
-projmap status --format json
-```
-
-2. If projMap is not initialized, stop and tell the user.
-
-3. Run:
-
-```bash
-projmap scan --format json
-```
-
-4. Determine task limit:
-   - If user specified a number, use that number.
-   - Otherwise use `10`.
-
-5. Run:
-
-```bash
-projmap prepare-extraction --limit <N> --format json
-```
-
-6. Read:
-
-```
-.projmap/extraction_tasks/task_manifest.json
-```
-
-7. For each task in the manifest:
-   - Read the task file.
-   - Extract only explicit project memory.
-   - Generate the matching result file at `result_path`.
-
-8. Each result file must follow the `external_extraction_v1` schema used by projMap.
-
-9. Extraction rules:
-   - Extract only facts explicitly supported by the task content.
-   - Every node and edge must include `evidence_quote`.
-   - `evidence_quote` must be copied exactly from the chunk.
-   - Do not invent IDs.
-   - If a chunk has no useful project memory, return empty arrays.
-   - Each `content` must be a complete self-contained sentence including subject (project/system name). BAD: "K mapping". GOOD: "V13 uses K horizons of 3, 6, and 8 bars".
-   - Keep `detail` under 500 characters.
-   - For `decision` type nodes, also output `title`, `context`, `rationale`, `scope`, `status_hint`, `project_hint`, `version_hint`, `module_hint`.
-
-10. Run:
-
-```bash
-projmap import-extraction --format json
-```
-
-`strict_evidence` is controlled by `.projmap/config.toml`.
-
-11. Run:
-
-```bash
-projmap status --format json
-```
 
 ## Update response format
 

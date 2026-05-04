@@ -177,6 +177,7 @@ def rebuild_project(
         model=cfg.llm_model,
         api_key_env=cfg.api_key_env,
         temperature=cfg.temperature,
+        prompt_version=cfg.prompt_version,
     )
     try:
         _ = extractor.api_key

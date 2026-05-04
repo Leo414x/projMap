@@ -1,0 +1,114 @@
+{
+  "good_examples": [
+    {
+      "_comment": "Correct: complete sentences, verbatim evidence, proper decision fields, valid edges with from_content/to_content",
+      "input_chunk": "After extensive backtesting across 18 months of data, we decided to use day-level bars for V8 instead of the 15-minute intraday bars used in V7. The primary reason is that bar-level noise in the 15-min timeframe introduced too many false signals in the momentum indicator, leading to a 40% increase in false-positive trade entries.\n\nThe lookback window is set to 60 trading days, consistent with V7.\n\nRisk: switching to daily bars reduces our ability to react to intraday volatility spikes. This is partially mitigated by the overnight position limit of $500K.",
+      "expected_output": {
+        "nodes": [
+          {
+            "type": "decision",
+            "title": "Switch to day-level bars for V8",
+            "content": "V8 uses day-level bars instead of V7's 15-minute intraday bars for the momentum strategy data pipeline.",
+            "summary": "V8 switches from 15-min to daily bars to reduce noise-induced false signals.",
+            "context": "V7 used 15-minute intraday bars which introduced excessive noise in momentum signals",
+            "rationale": "Bar-level noise in 15-min timeframe caused too many false signals in momentum indicator, leading to 40% increase in false-positive entries",
+            "scope": "V8 momentum strategy data pipeline",
+            "status_hint": "active",
+            "project_hint": "Trading System",
+            "version_hint": "V8",
+            "module_hint": "momentum",
+            "detail": "Backtesting across 18 months showed 15-min bar noise caused 40% increase in false-positive trade entries.",
+            "evidence_quote": "we decided to use day-level bars for V8 instead of the 15-minute intraday bars used in V7",
+            "confidence": 0.9
+          },
+          {
+            "type": "config",
+            "content": "V8 momentum strategy lookback window is set to 60 trading days, unchanged from V7.",
+            "detail": "Consistent with V7 configuration.",
+            "evidence_quote": "The lookback window is set to 60 trading days, consistent with V7",
+            "confidence": 0.85
+          },
+          {
+            "type": "risk",
+            "content": "Switching to daily bars in V8 reduces the ability to react to intraday volatility spikes.",
+            "detail": "Partially mitigated by overnight position limit.",
+            "evidence_quote": "switching to daily bars reduces our ability to react to intraday volatility spikes",
+            "confidence": 0.8
+          },
+          {
+            "type": "constraint",
+            "content": "V8 overnight position limit is capped at $500K.",
+            "detail": "Serves as mitigation for reduced intraday reactivity after switching to daily bars.",
+            "evidence_quote": "the overnight position limit of $500K",
+            "confidence": 0.85
+          }
+        ],
+        "edges": [
+          {
+            "from_content": "V8 overnight position limit is capped at $500K.",
+            "to_content": "Switching to daily bars in V8 reduces the ability to react to intraday volatility spikes.",
+            "relationship": "mitigates",
+            "evidence_quote": "This is partially mitigated by the overnight position limit of $500K",
+            "confidence": 0.8
+          },
+          {
+            "from_content": "Switching to daily bars in V8 reduces the ability to react to intraday volatility spikes.",
+            "to_content": "V8 uses day-level bars instead of V7's 15-minute intraday bars for the momentum strategy data pipeline.",
+            "relationship": "depends-on",
+            "evidence_quote": "switching to daily bars reduces our ability to react to intraday volatility spikes",
+            "confidence": 0.75
+          }
+        ]
+      }
+    }
+  ],
+  "bad_examples": [
+    {
+      "_comment": "Wrong: content is a fragment, no evidence_quote, manually assigned ID",
+      "input_chunk": "After extensive backtesting, we decided to use day-level bars instead of intraday bars for V8.",
+      "bad_output": {
+        "nodes": [
+          {
+            "type": "decision",
+            "content": "day-level bars",
+            "detail": "",
+            "evidence_quote": ""
+          }
+        ],
+        "edges": []
+      },
+      "problems": [
+        "content is a fragment ('day-level bars'), not a self-contained sentence",
+        "evidence_quote is empty — must be verbatim from chunk",
+        "missing decision-specific fields (title, context, rationale, scope, status_hint)",
+        "missing required confidence field"
+      ]
+    },
+    {
+      "_comment": "Wrong: extracting a heading as a node, creating edge with wrong field names",
+      "input_chunk": "## Risk Assessment\n\nThe model uses a stop-loss of 2% per trade to limit downside.",
+      "bad_output": {
+        "nodes": [
+          {
+            "type": "risk",
+            "content": "Risk Assessment",
+            "evidence_quote": "Risk Assessment"
+          }
+        ],
+        "edges": [
+          {
+            "source_ref": "node_0",
+            "target_ref": "node_1",
+            "relation": "mitigates",
+            "evidence_quote": "stop-loss of 2%"
+          }
+        ]
+      },
+      "problems": [
+        "content 'Risk Assessment' is a heading, not an extractable node",
+        "edges use source_ref/target_ref instead of from_content/to_content",
+        "relation should be 'relationship' not 'relation'"
+      ]
+    }
+  ]
+}

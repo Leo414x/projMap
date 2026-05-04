@@ -53,6 +53,7 @@ class ProjmapConfig:
     overlap_chars: int = 800
     extraction_mode: str = "external"
     strict_evidence: bool = True
+    prompt_version: str = "v1"
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     api_key_env: str = "ANTHROPIC_API_KEY"
@@ -94,6 +95,7 @@ def _to_toml_dict(cfg: ProjmapConfig) -> dict:
         "extraction": {
             "mode": cfg.extraction_mode,
             "strict_evidence": cfg.strict_evidence,
+            "prompt_version": cfg.prompt_version,
         },
         "llm": {
             "provider": cfg.llm_provider,
@@ -149,6 +151,7 @@ def load_config(root: str = ".") -> ProjmapConfig:
         overlap_chars=chunking.get("overlap_chars", 800),
         extraction_mode=extraction.get("mode", "external"),
         strict_evidence=extraction.get("strict_evidence", True),
+        prompt_version=extraction.get("prompt_version", "v1"),
         llm_provider=llm.get("provider", "anthropic"),
         llm_model=llm.get("model", "claude-sonnet-4-20250514"),
         api_key_env=llm.get("api_key_env", "ANTHROPIC_API_KEY"),
