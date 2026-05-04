@@ -27,17 +27,7 @@ from projmap.storage.cache import FileHashCache
 from projmap.storage.duckdb_store import DuckDBStore
 
 
-def _ok(**kwargs) -> dict:
-    result = {"ok": True, "warnings": [], "errors": []}
-    result.update(kwargs)
-    return result
-
-
-def _err(error_code: str, message: str, **kwargs) -> dict:
-    result = {"ok": False, "error_code": error_code, "message": message,
-              "warnings": [], "errors": []}
-    result.update(kwargs)
-    return result
+from projmap.util import _ok, _err, resolve_edge_node
 
 
 def _path_str(p: Path) -> str:
@@ -200,15 +190,20 @@ def rebuild_project(
         return _err("MISSING_API_KEY", str(exc))
 
     start = time.time()
+    file_node_lookups: dict[str, dict[str, str]] = {}
 
-    for frec in records_changed:
-        # Delete old data for this file
-        store.delete_chunks_for_file(frec.path)
-        store.delete_nodes_for_file(frec.path)
-        store.delete_edges_for_file(frec.path)
+    try:
+        store.begin()
+        for frec in records_changed:
+            # Delete old data for this file
+            store.delete_chunks_for_file(frec.path)
+            store.delete_nodes_for_file(frec.path)
+            store.delete_edges_for_file(frec.path)
 
-        # Chunk
-        chunks = chunk_text(
+            file_node_lookups.pop(frec.path, None)
+
+            # Chunk
+            chunks = chunk_text(
             frec.content, frec.path,
             max_chars=cfg.max_chars,
             overlap_chars=cfg.overlap_chars,
@@ -237,18 +232,6 @@ def rebuild_project(
 
             raw = result.model_dump_json()
 
-            # Validate
-            try:
-                ExtractionResult.model_validate_json(raw)
-            except Exception as exc:
-                ext_id = str(uuid.uuid4())
-                store.insert_extraction(
-                    ext_id, chunk.id, frec.path, cfg.llm_model,
-                    raw, None, "validation_failed", str(exc),
-                )
-                stats.extractions_failed += 1
-                continue
-
             # Insert nodes
             node_lookup: dict[str, str] = {}
             for n in result.nodes:
@@ -266,10 +249,15 @@ def rebuild_project(
                 else:
                     stats.nodes_skipped_duplicate += 1
 
-            # Insert edges
+            if frec.path not in file_node_lookups:
+                file_node_lookups[frec.path] = {}
+            file_node_lookups[frec.path].update(node_lookup)
+
+            # Insert edges — resolve against file-level lookup (cross-chunk)
+            file_lookup = file_node_lookups[frec.path]
             for edge in result.edges:
-                from_nid = _resolve_edge_node(edge.from_content, node_lookup)
-                to_nid = _resolve_edge_node(edge.to_content, node_lookup)
+                from_nid = resolve_edge_node(edge.from_content, file_lookup)
+                to_nid = resolve_edge_node(edge.to_content, file_lookup)
                 if not from_nid or not to_nid:
                     stats.edges_dropped_unresolved += 1
                     continue
@@ -296,6 +284,12 @@ def rebuild_project(
         )
         cache.set(frec.path, frec.content_hash)
 
+        store.commit()
+    except Exception:
+        store.rollback()
+        cache.save()
+        store.close()
+        raise
     cache.save()
     stats.duration_seconds = round(time.time() - start, 2)
     store.close()
@@ -308,9 +302,6 @@ def rebuild_project(
     )
 
 
-def _resolve_edge_node(content: str, chunk_lookup: dict[str, str]) -> str | None:
-    norm = normalize_content(content)
-    return chunk_lookup.get(norm)
 
 
 def get_status(project_root: str = ".") -> dict:

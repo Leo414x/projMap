@@ -243,17 +243,7 @@ If there is an error, report only:
 DEFAULT_SKILL_PATH = ".agents/skills/projmap-memory/SKILL.md"
 
 
-def _ok(**kwargs) -> dict:
-    result = {"ok": True, "warnings": [], "errors": []}
-    result.update(kwargs)
-    return result
-
-
-def _err(error_code: str, message: str, **kwargs) -> dict:
-    result = {"ok": False, "error_code": error_code, "message": message,
-              "warnings": [], "errors": []}
-    result.update(kwargs)
-    return result
+from projmap.util import _ok, _err
 
 
 def install_skill_fn(

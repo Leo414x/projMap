@@ -58,22 +58,7 @@ EXTRACTION_RULES = [
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _ok(**kwargs) -> dict:
-    result = {"ok": True, "warnings": [], "errors": []}
-    result.update(kwargs)
-    return result
-
-
-def _err(error_code: str, message: str, **kwargs) -> dict:
-    result = {"ok": False, "error_code": error_code, "message": message,
-              "warnings": [], "errors": []}
-    result.update(kwargs)
-    return result
-
-
-def _resolve_edge_node(content: str, chunk_lookup: dict[str, str]) -> str | None:
-    norm = normalize_content(content)
-    return chunk_lookup.get(norm)
+from projmap.util import _ok, _err, resolve_edge_node
 
 
 # ── Prepare ──────────────────────────────────────────────────────────
@@ -369,7 +354,8 @@ def import_extraction(
             file_node_lookups[file_path] = {}
         file_node_lookups[file_path].update(node_lookup)
 
-        # Insert edges
+        # Insert edges — resolve against file-level lookup (cross-chunk)
+        file_lookup = file_node_lookups[file_path]
         for edge in extraction.edges:
             if edge.confidence < min_confidence:
                 edges_skipped_low_confidence += 1
@@ -379,8 +365,8 @@ def import_extraction(
                 evidence_failures += 1
                 continue
 
-            from_nid = _resolve_edge_node(edge.from_content, node_lookup)
-            to_nid = _resolve_edge_node(edge.to_content, node_lookup)
+            from_nid = resolve_edge_node(edge.from_content, file_lookup)
+            to_nid = resolve_edge_node(edge.to_content, file_lookup)
             if not from_nid or not to_nid:
                 edges_dropped_unresolved += 1
                 continue
@@ -414,9 +400,7 @@ def import_extraction(
                      results_failed=results_failed,
                      warnings=warnings)
 
-    ok = True
     if results_failed > 0:
-        ok = True  # allow_partial
         warnings.insert(0, f"{results_failed} result files failed validation")
     if edges_dropped_unresolved > 0:
         warnings.append(f"{edges_dropped_unresolved} edges dropped because node references could not be resolved")

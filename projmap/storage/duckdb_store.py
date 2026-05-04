@@ -165,6 +165,12 @@ class DuckDBStore:
         self.conn.execute(CREATE_TABLES)
         self._run_migrations()
 
+    def __enter__(self) -> DuckDBStore:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
     def _run_migrations(self) -> None:
         existing = self._get_columns("nodes")
         for sql in V5_MIGRATIONS:
@@ -175,14 +181,31 @@ class DuckDBStore:
                 except Exception:
                     pass
 
+    VALID_TABLES = frozenset({"files", "chunks", "nodes", "edges", "extractions", "sources"})
+
     def _get_columns(self, table: str) -> set[str]:
+        if table not in self.VALID_TABLES:
+            raise ValueError(f"Invalid table name: {table}")
         rows = self.conn.execute(
-            f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}'"
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+            [table],
         ).fetchall()
         return {r[0] for r in rows}
 
     def close(self) -> None:
         self.conn.close()
+
+    def begin(self) -> None:
+        self.conn.execute("BEGIN TRANSACTION")
+
+    def commit(self) -> None:
+        self.conn.execute("COMMIT")
+
+    def rollback(self) -> None:
+        try:
+            self.conn.execute("ROLLBACK")
+        except Exception:
+            pass
 
     # ── files ──────────────────────────────────────────────────
 
@@ -412,7 +435,8 @@ class DuckDBStore:
 
     def get_all_nodes_as_dicts(self, limit: int = 1000) -> list[dict]:
         rows = self.conn.execute(
-            f"SELECT * FROM nodes ORDER BY sort_time DESC NULLS LAST LIMIT {limit}"
+            "SELECT * FROM nodes ORDER BY sort_time DESC NULLS LAST LIMIT ?",
+            [limit],
         ).fetchall()
         columns = [desc[0] for desc in self.conn.description]
         return [dict(zip(columns, row)) for row in rows]
@@ -529,9 +553,11 @@ class DuckDBStore:
 
     def counts(self) -> dict[str, int]:
         result: dict[str, int] = {}
-        for table in ("files", "chunks", "nodes", "edges", "extractions", "sources"):
+        for table in self.VALID_TABLES:
             try:
-                row = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()
                 result[table] = row[0]
             except Exception:
                 result[table] = 0

@@ -289,10 +289,6 @@ def import_extraction_cmd(
         console.print(f"[yellow]Warning:[/yellow] {w}")
 
 
-if __name__ == "__main__":
-    app()
-
-
 # ── install-skill ───────────────────────────────────────────────
 
 @app.command("install-skill")
@@ -656,3 +652,7 @@ def migrate(
     console.print(f"  Missing evidence:  {result['missing_evidence']}", style="yellow")
     if dry_run:
         console.print("\n[dim]Run with --execute to apply migration.[/dim]")
+
+
+if __name__ == "__main__":
+    app()

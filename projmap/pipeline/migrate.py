@@ -140,7 +140,6 @@ def run_migration(dry_run: bool = True) -> dict:
         ts = now_utc()
         ts_str = str(ts)
 
-        evidence = n.get("evidence_quote", "")
         confidence = n.get("confidence", 0.5)
         priority = compute_display_priority(n.get("type", "decision"), confidence, 0)
         visible, hidden_reason = resolve_visibility(
