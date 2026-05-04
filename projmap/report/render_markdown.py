@@ -96,8 +96,20 @@ def render_brief(brief: dict) -> str:
         lines.append("")
 
     # 7. Detailed Items
-    all_nodes = [n for n in brief["all_nodes"]
-                 if n.get("source_scope") != "agent_instruction"]
+    _EXCLUDED_SOURCES = {
+        ".agents", ".claude", ".cursor", ".codex", ".aider",
+        ".github", ".vscode", ".idea", ".projmap",
+    }
+
+    def _is_excluded_source(source_file: str) -> bool:
+        parts = Path(source_file).parts
+        return any(p in _EXCLUDED_SOURCES for p in parts)
+
+    all_nodes = [
+        n for n in brief["all_nodes"]
+        if n.get("source_scope") != "agent_instruction"
+        and not _is_excluded_source(n.get("source_file", ""))
+    ]
     if all_nodes:
         lines.append("## 7. Detailed Items")
         lines.append("| Priority | Project | Version | Type | Status | Title | Source |")
@@ -108,7 +120,8 @@ def render_brief(brief: dict) -> str:
             ver = n.get("version", "")
             typ = n.get("type", "")
             stat = n.get("report_status", "")
-            title = n.get("display_title", n.get("content", "")[:40]).replace("|", "/")[:60]
+            title = n.get("display_title", "") or n.get("content", "")[:60]
+            title = title.replace("|", "/")[:80]
             src = n.get("source_file", "")
             lines.append(f"| {pri} | {proj} | {ver} | {typ} | {stat} | {title} | `{src}` |")
         lines.append("")

@@ -36,6 +36,13 @@ def _is_candidate(path: Path, cfg: ProjmapConfig) -> bool:
     return False
 
 
+# Paths that are never scanned regardless of config — agent tooling, not project docs
+_ALWAYS_IGNORE_DIRS = frozenset({
+    ".agents", ".claude", ".cursor", ".codex", ".aider",
+    ".github", ".vscode", ".idea", ".projmap",
+})
+
+
 def _get_git_log(root: str, limit: int) -> tuple[str, str] | None:
     try:
         result = subprocess.run(
@@ -75,6 +82,10 @@ def scan_files(
         for fname in filenames:
             full = dir_path / fname
             rel = str(full.relative_to(root))
+
+            # Hard block: agent/meta directories are never scanned
+            if any(part in _ALWAYS_IGNORE_DIRS for part in full.parts):
+                continue
 
             if _should_ignore(Path(rel), cfg):
                 continue

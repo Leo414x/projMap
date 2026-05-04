@@ -19,6 +19,14 @@ DEFAULT_IGNORE_PATHS = [
     "__pycache__",
     ".pytest_cache",
     "*.egg-info",
+    ".agents",
+    ".claude",
+    ".cursor",
+    ".codex",
+    ".aider",
+    ".github",
+    ".vscode",
+    ".idea",
 ]
 
 DEFAULT_IGNORE_GLOBS = [
@@ -33,6 +41,10 @@ DEFAULT_IGNORE_GLOBS = [
     "*.jpeg",
     "*.gif",
     "*.pdf",
+    "CLAUDE_CODE_PROMPT.md",
+    "CLAUDE.local.md",
+    ".cursorrules",
+    ".claudeignore",
 ]
 
 DEFAULT_INCLUDE_EXTENSIONS = [".md", ".txt"]
