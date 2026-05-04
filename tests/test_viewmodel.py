@@ -4,7 +4,7 @@ import json
 import pytest
 from pathlib import Path
 
-from projmap.viewmodel import build_row, build_table_viewmodel, RowViewModel
+from projmap.display.viewmodel import build_row, build_table_viewmodel, RowViewModel
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "v5"

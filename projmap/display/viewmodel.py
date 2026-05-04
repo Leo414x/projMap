@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from projmap.resolvers import (
+from projmap.display.resolvers import (
     compute_display_priority,
+    resolve_badges,
+    resolve_sort_time,
+    resolve_time_label,
+    resolve_time_value,
+    resolve_visibility,
+)
+from projmap.display.formatters import (
     format_confidence_label,
     format_module_label,
     format_project_version,
@@ -14,11 +21,6 @@ from projmap.resolvers import (
     format_status_label,
     format_time_display,
     format_type_label,
-    resolve_badges,
-    resolve_sort_time,
-    resolve_time_label,
-    resolve_time_value,
-    resolve_visibility,
     truncate_text,
 )
 from projmap.schemas import format_yyyy_mm
@@ -211,7 +213,7 @@ def build_row(
 
 
 def _status_severity(status: str) -> str:
-    from projmap.resolvers import STATUS_SEVERITY
+    from projmap.display.formatters import STATUS_SEVERITY
     return STATUS_SEVERITY.get(status, "warning")
 
 

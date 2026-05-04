@@ -2,7 +2,7 @@
 
 import pytest
 
-from projmap.chunker import chunk_text
+from projmap.ingestion.chunker import chunk_text
 from projmap.schemas import file_hash
 
 

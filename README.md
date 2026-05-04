@@ -14,6 +14,6 @@
 
 | 目录 | 用途 |
 |---|---|
-| `projmap/` | 核心源码 |
-| `tests/` | 测试套件 |
-| `docs/` | 设计文档、方案 |
+| `projmap/` | 核心源码（见 [projmap/DIRECTORY.md](projmap/DIRECTORY.md)） |
+| `tests/` | 测试套件（326 tests） |
+| `docs/` | 设计文档、方案、架构说明 |

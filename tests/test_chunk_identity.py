@@ -3,7 +3,7 @@
 import pytest
 
 from projmap.schemas import slugify_heading_path
-from projmap.chunker import chunk_text, extract_heading_events, heading_path_for_offset
+from projmap.ingestion.chunker import chunk_text, extract_heading_events, heading_path_for_offset
 
 
 class TestSlugifyHeadingPath:
@@ -105,7 +105,7 @@ class TestChunkHasHeadingFields:
 
     def test_nested_heading(self):
         # Verify that heading events correctly track nested headings
-        from projmap.chunker import extract_heading_events, heading_path_for_offset
+        from projmap.ingestion.chunker import extract_heading_events, heading_path_for_offset
 
         content = "# V13\n\nIntro text.\n\n## V8.4\n\nDecision content here."
         events = extract_heading_events(content)

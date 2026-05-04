@@ -2,7 +2,7 @@
 
 import pytest
 
-from projmap.resolvers import (
+from projmap.display.resolvers import (
     CANONICAL_MODULES,
     MODULE_ALIASES,
     normalize_module,
@@ -16,6 +16,9 @@ from projmap.resolvers import (
     resolve_visibility,
     compute_display_priority,
     resolve_badges,
+    resolve_classification,
+)
+from projmap.display.formatters import (
     format_type_label,
     format_module_label,
     format_project_version,
@@ -26,7 +29,6 @@ from projmap.resolvers import (
     format_time_display,
     truncate_text,
     format_source_confidence,
-    resolve_classification,
 )
 
 

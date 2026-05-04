@@ -143,23 +143,33 @@ depends-on, conflicts-with, supersedes, traces-back-to, mitigates, implements, a
 
 ```
 projmap/
-├── cli.py              # CLI 命令（Typer）
-├── api.py              # 稳定内部 API 层
+├── cli.py              # CLI 命令（Typer），658 行
+├── api.py              # 稳定内部 API 层 + re-export，362 行
 ├── config.py           # 配置读写
 ├── schemas.py          # Pydantic 数据模型
-├── scanner.py          # 文件扫描
-├── chunker.py          # 文本分块
-├── extractor.py        # LLM 抽取
-├── resolvers.py        # 分类解析 + 格式化
-├── viewmodel.py        # ViewModel 构建
+│
+├── ingestion/          # 数据摄入
+│   ├── scanner.py      # 文件扫描 + hash
+│   ├── chunker.py      # 文本分块
+│   └── extractor.py    # LLM 抽取（Anthropic API + prompt）
+│
+├── pipeline/           # 管道编排
+│   ├── extraction.py   # 外部抽取（prepare / import）
+│   ├── migrate.py      # 旧数据迁移到 v5 schema
+│   └── skill.py        # projMap Memory Skill 安装
 │
 ├── storage/            # 数据持久化
 │   ├── duckdb_store.py # DuckDB CRUD
 │   └── cache.py        # 文件 hash 缓存
 │
+├── display/            # 显示层
+│   ├── resolvers.py    # 分类解析（module / project / version / time / visibility）
+│   ├── formatters.py   # 格式化（label / severity / confidence / source）
+│   └── viewmodel.py    # ViewModel 构建（供 context / doctor 命令）
+│
 ├── report/             # Report Layer（LLM 驱动）
 │   ├── prompts.py      # LLM prompt 定义
-│   ├── llm_enricher.py # LLM 调用 + external 模式
+│   ├── llm_enricher.py # LLM 调用 + external 模式 + 缓存
 │   ├── brief_builder.py # Brief 结构组装
 │   ├── render_markdown.py # Markdown 渲染
 │   ├── grouping.py     # 节点分组
