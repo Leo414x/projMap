@@ -216,7 +216,6 @@ decisionriskassumptionversionconstraint
 并且每个 node / edge 都可以追溯到原文 evidence quote。
 
 19. 最终开发顺序
-建议 CC 按这个顺序开发：
 1. schemas.py2. config.py3. storage/duckdb_store.py4. storage/cache.py5. scanner.py6. chunker.py7. extractor.py8. cli.py init9. cli.py scan10. cli.py rebuild11. cli.py status12. tests
 不要从 extractor 开始。
 先把本地基础设施跑通，再接 LLM。
