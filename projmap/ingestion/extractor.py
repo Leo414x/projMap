@@ -10,6 +10,7 @@ from projmap.schemas import (
     ExtractionResult,
     edge_id,
     node_id,
+    normalize_content,
 )
 
 SYSTEM_PROMPT = """\
@@ -219,8 +220,6 @@ def _find_node_id(
     chunk_ids: dict[str, str],
     file_ids: dict[str, str],
 ) -> str | None:
-    from projmap.schemas import normalize_content
-
     norm = normalize_content(content)
     if norm in chunk_ids:
         return chunk_ids[norm]
@@ -230,7 +229,6 @@ def _find_node_id(
 
 
 def build_node_lookup(result: ExtractionResult) -> dict[str, str]:
-    from projmap.schemas import normalize_content
     lookup: dict[str, str] = {}
     for n in result.nodes:
         norm = node_id(n.type, n.content)

@@ -5,24 +5,25 @@ description = "Project memory and intelligence map"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "typer",
-    "rich",
-    "duckdb",
-    "lancedb",
-    "pydantic",
-    "anthropic",
-    "openai",
-    "networkx",
-    "jinja2",
-    "python-frontmatter",
-    "tiktoken",
-    "orjson",
-    "tomli_w",
+    "typer>=0.9",
+    "rich>=13",
+    "duckdb>=0.9",
+    "lancedb>=0.4",
+    "pydantic>=2.0",
+    "anthropic>=0.30",
+    "openai>=1.0",
+    "networkx>=3.0",
+    "jinja2>=3.1",
+    "python-frontmatter>=1.0",
+    "tiktoken>=0.5",
+    "orjson>=3.9",
+    "tomli_w>=1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
 ]
 
 [project.scripts]
@@ -31,3 +32,13 @@ projmap = "projmap.cli:app"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

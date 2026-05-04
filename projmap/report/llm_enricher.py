@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from projmap.config import load_config
 from projmap.report.prompts import (
     ENRICH_SYSTEM_PROMPT,
     ENRICH_USER_PROMPT_TEMPLATE,
@@ -193,7 +194,6 @@ def prepare_brief_tasks(
     clear: bool = True,
 ) -> dict:
     """Write enrichment task files for external LLM processing."""
-    from projmap.config import load_config
     from projmap.storage.duckdb_store import DuckDBStore
 
     cfg = load_config(project_root)
@@ -275,7 +275,6 @@ def prepare_brief_tasks(
 
 def import_brief_results(project_root: str = ".") -> dict:
     """Read external LLM enrichment results and cache them."""
-    from projmap.config import load_config
 
     cfg = load_config(project_root)
     root = Path(cfg.root).resolve()
@@ -330,7 +329,6 @@ def import_brief_results(project_root: str = ".") -> dict:
 
 def load_cached_enrichments(project_root: str = ".") -> dict[str, dict]:
     """Load previously cached enrichments. Returns {node_id: enrichment}."""
-    from projmap.config import load_config
 
     cfg = load_config(project_root)
     cache_path = Path(cfg.root).resolve() / ".projmap" / "enrichment_cache.json"
@@ -362,7 +360,6 @@ def enrich_nodes(
             enrichments = enrich_nodes_api(nodes, query=query, model=model)
             # Cache the results
             try:
-                from projmap.config import load_config
                 cfg = load_config(project_root)
                 cache_path = Path(cfg.root).resolve() / ".projmap" / "enrichment_cache.json"
                 existing = {}

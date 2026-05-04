@@ -6,7 +6,6 @@ No printing, no Rich, no Typer dependency.
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from pathlib import Path
@@ -28,10 +27,6 @@ from projmap.storage.duckdb_store import DuckDBStore
 
 
 from projmap.util import _ok, _err, resolve_edge_node
-
-
-def _path_str(p: Path) -> str:
-    return str(p)
 
 
 def init_project(

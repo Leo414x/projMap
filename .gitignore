@@ -6,4 +6,13 @@ __pycache__/
 dist/
 build/
 .env
+.env.local
 .DS_Store
+.venv/
+venv/
+*.log
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.projmap/

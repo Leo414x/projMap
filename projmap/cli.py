@@ -19,7 +19,6 @@ FormatOption = Optional[str]
 
 
 def _output_json(result: dict) -> None:
-    import sys
     sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, default=str) + "\n")
     sys.stdout.flush()
 
@@ -27,6 +26,18 @@ def _output_json(result: dict) -> None:
 def _exit_on_error(result: dict) -> None:
     if not result.get("ok"):
         raise typer.Exit(code=1)
+
+
+def _json_or_error(result: dict, fmt: str | None) -> bool:
+    """Handle JSON output + error check. Returns True if JSON was output."""
+    if fmt == "json":
+        _output_json(result)
+        _exit_on_error(result)
+        return True
+    if not result.get("ok"):
+        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
+        raise typer.Exit(code=1)
+    return False
 
 
 # ── init ────────────────────────────────────────────────────────
@@ -55,14 +66,8 @@ def init(
         install_skill=_skill,
     )
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     if result.get("created"):
         console.print("[bold green]projMap initialized.[/bold green]")
@@ -95,14 +100,8 @@ def scan(
     """Scan project files and show hash status."""
     result = api.scan_project(".")
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     table = Table(title="Scan Summary")
     table.add_column("Metric", style="bold")
@@ -137,14 +136,8 @@ def rebuild(
     """Incremental rebuild: extract nodes/edges from changed files."""
     result = api.rebuild_project(".", dry_run=dry_run, force=force)
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     if result.get("dry_run"):
         console.print("[bold]Dry run - files to process:[/bold]")
@@ -180,14 +173,8 @@ def status(
     """Show current graph status."""
     result = api.get_status(".")
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     console.print("[bold]projMap Status[/bold]")
     console.print(f"Project: [cyan]{result.get('project', 'unknown')}[/cyan]")
@@ -223,14 +210,8 @@ def prepare_extraction(
     """Prepare extraction tasks for external LLM (no API key needed)."""
     result = api.prepare_extraction(".", force=force, limit=limit, clear=clear)
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     console.print(f"[bold green]Prepared {result['tasks_created']} extraction tasks.[/bold green]")
     console.print(f"Task dir:    [cyan]{result['task_dir']}[/cyan]")
@@ -260,14 +241,8 @@ def import_extraction_cmd(
         allow_partial=allow_partial, min_confidence=min_confidence,
     )
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     table = Table(title="Import Summary")
     table.add_column("Metric", style="bold")
@@ -303,14 +278,8 @@ def install_skill(
         ".", force=force, print_only=print_output, path=path,
     )
 
-    if format == "json":
-        _output_json(result)
-        _exit_on_error(result)
+    if _json_or_error(result, format):
         return
-
-    if not result["ok"]:
-        console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
-        raise typer.Exit(code=1)
 
     if print_output:
         console.print(result.get("content", ""))

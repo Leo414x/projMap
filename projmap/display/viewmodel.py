@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from projmap.display.resolvers import (
     compute_display_priority,
@@ -13,6 +14,7 @@ from projmap.display.resolvers import (
     resolve_visibility,
 )
 from projmap.display.formatters import (
+    STATUS_SEVERITY,
     format_confidence_label,
     format_module_label,
     format_project_version,
@@ -213,7 +215,6 @@ def build_row(
 
 
 def _status_severity(status: str) -> str:
-    from projmap.display.formatters import STATUS_SEVERITY
     return STATUS_SEVERITY.get(status, "warning")
 
 
@@ -299,5 +300,4 @@ def _row_to_dict(r: RowViewModel) -> dict:
 
 
 def _now_iso() -> str:
-    from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from projmap.config import load_config
@@ -165,7 +166,6 @@ def prepare_extraction(
             break
 
     # Write manifest
-    from datetime import datetime, timezone
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "project_name": cfg.project_name,
